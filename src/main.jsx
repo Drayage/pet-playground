@@ -6,11 +6,13 @@ import {
   ArrowUpDown,
   Backpack,
   BookOpen,
+  Bone,
   Box,
   Check,
   ChevronRight,
   CircleMinus,
   Crown,
+  Cookie,
   Dog,
   Gift,
   Hammer,
@@ -571,10 +573,10 @@ export default function App() {
         <div className="progress">{STEPS.map((step, i) => <React.Fragment key={step}><div className={`progress-step ${i === activeStep(state) ? "active" : ""} ${i < activeStep(state) ? "done" : ""}`}><span>{i < activeStep(state) ? <Check size={14} /> : i + 1}</span>{step}</div>{i < STEPS.length - 1 && <ChevronRight size={16} />}</React.Fragment>)}</div>
         <h2>{title}</h2><p>{helper}</p>
         <div className="quick-stats" aria-label="현재 플레이어 핵심 정보">
-          <span><small>인기</small><b>{current.popularity}</b></span>
-          <span><small>레벨</small><b>{current.playgroundLevel}</b></span>
-          <span><small>간식</small><b>{current.storage.treats}/4</b></span>
-          <span><small>장난감</small><b>{current.storage.toys}/4</b></span>
+          <span><small><Trophy size={10} />인기</small><b>{current.popularity}</b></span>
+          <span><small><TrendingUp size={10} />레벨</small><b>{current.playgroundLevel}</b></span>
+          <span><small><Cookie size={10} />간식</small><b>{current.storage.treats}/4</b></span>
+          <span><small><Bone size={10} />장난감</small><b>{current.storage.toys}/4</b></span>
         </div>
       </section>
 
@@ -672,7 +674,7 @@ function DetailPanel({ state, card, addedCards, onToggleAction, onSwapOrder, onC
       const calc = calculation(state, card, addedCards, item.effect);
       return <section className={`action-choice ${item.available.ok ? "available" : "unavailable"}`} key={item.key} title={!item.available.ok ? item.available.reason : ""}>
         <label><input type="checkbox" checked={state.selectedActions[item.key]} disabled={!item.available.ok} onChange={() => onToggleAction(item.key)} /><span><strong>{item.title}</strong><small>{item.note}</small></span><em>{item.available.ok ? "사용 가능" : "사용 불가"}</em></label>
-        <p><b className="order-number">{orderIndex + 1}</b>{item.text}</p>{["LEVEL", "LEVEL_DISCOUNT", "LEVEL_SCORE"].includes(item.effect.type) && <div className="level-cost">확장 비용: {levelCostText(current, item.effect.type === "LEVEL_DISCOUNT" ? 1 : 0)}</div>}{!item.available.ok && <div className="reason">{item.available.reason}</div>}
+        <p><b className="order-number">{orderIndex + 1}</b><EffectIcons effect={item.effect} inline />{item.text}</p>{["LEVEL", "LEVEL_DISCOUNT", "LEVEL_SCORE"].includes(item.effect.type) && <div className="level-cost"><TrendingUp size={13} />확장 비용: {levelCostText(current, item.effect.type === "LEVEL_DISCOUNT" ? 1 : 0)}</div>}{!item.available.ok && <div className="reason">{item.available.reason}</div>}
         {state.selectedActions[item.key] && calc && <Calculation calc={calc} result={expectedText(state, card, addedCards, item.effect, state.resourceChoice)} />}
       </section>;
     })}</div>
@@ -704,30 +706,38 @@ function CleanupSequence({ state }) {
 }
 
 function PlayerPanel({ player, active, onOpenPile }) {
-  return <article className={`player ${active ? "active" : ""}`}><div className="player-title"><Dog size={19} /><strong>{player.name}</strong>{active && <span>현재 차례</span>}</div><InfoGroup label="인기 점수"><b>{player.popularity}점</b></InfoGroup><InfoGroup label="놀이터"><span>레벨 {player.playgroundLevel}</span><span>종료 점수 +{levelScores[player.playgroundLevel]}</span><b>현재 최종 점수 {scorePlayer(player)}점</b></InfoGroup><InfoGroup label="보관함"><span>간식 {player.storage.treats}/4</span><span>장난감 {player.storage.toys}/4</span></InfoGroup><InfoGroup label="소풍 가방과 사진첩"><span>가방 {player.picnicBag.treats + player.picnicBag.toys}/{capacity(player)}</span><PileButton icon={Album} label="사진첩" count={player.album.length} onClick={() => onOpenPile("album")} /></InfoGroup><InfoGroup label="카드 더미"><PileButton icon={Box} label="덱" count={player.deck.length} onClick={active ? () => onOpenPile("deck") : null} reason="상대 덱의 내용은 공개되지 않습니다." /><PileButton icon={Trash2} label="버림" count={player.discard.length} onClick={() => onOpenPile("discard")} /><PileButton icon={PackageOpen} label="입구" count={player.entrance.length} onClick={() => onOpenPile("entrance")} /></InfoGroup></article>;
+  return <article className={`player ${active ? "active" : ""}`}><div className="player-title"><Dog size={19} /><strong>{player.name}</strong>{active && <span>현재 차례</span>}</div><InfoGroup label="인기 점수"><StatChip icon={Trophy} label={`${player.popularity}점`} strong /></InfoGroup><InfoGroup label="놀이터"><StatChip icon={TrendingUp} label={`레벨 ${player.playgroundLevel}`} /><StatChip icon={Star} label={`종료 +${levelScores[player.playgroundLevel]}`} /><StatChip icon={Trophy} label={`최종 ${scorePlayer(player)}점`} strong /></InfoGroup><InfoGroup label="보관함"><StatChip icon={Cookie} label={`간식 ${player.storage.treats}/4`} /><StatChip icon={Bone} label={`장난감 ${player.storage.toys}/4`} /></InfoGroup><InfoGroup label="소풍 가방과 사진첩"><StatChip icon={Backpack} label={`가방 ${player.picnicBag.treats + player.picnicBag.toys}/${capacity(player)}`} /><PileButton icon={Album} label="사진첩" count={player.album.length} onClick={() => onOpenPile("album")} /></InfoGroup><InfoGroup label="카드 더미"><PileButton icon={Box} label="덱" count={player.deck.length} onClick={active ? () => onOpenPile("deck") : null} reason="상대 덱의 내용은 공개되지 않습니다." /><PileButton icon={Trash2} label="버림" count={player.discard.length} onClick={() => onOpenPile("discard")} /><PileButton icon={PackageOpen} label="입구" count={player.entrance.length} onClick={() => onOpenPile("entrance")} /></InfoGroup></article>;
 }
 function InfoGroup({ label, children }) { return <div className="info-group"><small>{label}</small><div>{children}</div></div>; }
+function StatChip({ icon: Icon, label, strong = false }) { const Tag = strong ? "b" : "span"; return <Tag className="stat-chip"><Icon size={12} />{label}</Tag>; }
 function PileButton({ icon: Icon, label, count, onClick, reason = "카드 목록을 확인합니다." }) { return <button type="button" className="pile-button" disabled={!onClick} title={onClick ? `${label} 카드 ${count}장을 확인합니다.` : reason} onClick={onClick}><Icon size={12} /><span>{label}</span><b>{count}</b></button>; }
 
 function effectVisual(effect) {
   const suit = effect.suit ? SUITS[effect.suit]?.label : "성향";
   const resource = effect.resource === "treats" ? "간식" : effect.resource === "toys" ? "장난감" : "자원";
+  const ResourceIcon = effect.resource === "treats" ? Cookie : effect.resource === "toys" ? Bone : Gift;
+  const SuitIcon = effect.suit ? SUITS[effect.suit]?.icon : null;
   const visuals = {
-    NONE: [CircleMinus, "없음"], GAIN: [Gift, `${resource} +${effect.amount || 1}`], GAIN_SUIT: [Gift, `${suit} × ${resource}`], SCORE_SUIT: [Trophy, `${suit} × 인기`],
-    ALBUM_SUIT: [Album, `${suit} × 사진첩`], MOVE_SUIT: [Backpack, `${suit} × 가방`], TRASH_SUIT: [Trash2, `${suit} × 작별`], LEVEL: [TrendingUp, "놀이터 +1"],
-    LEVEL_DISCOUNT: [TrendingUp, "할인 확장"], SCORE_BAG: [Trophy, "가방 × 인기"], SCORE_ALBUM: [Trophy, "사진첩 × 인기"], SCORE_LEVEL: [Trophy, "레벨 × 인기"],
-    TRASH_RIVAL: [Trash2, effect.reward ? "상대 작별 + 자원" : "상대 입구 작별"], ALBUM_ONE: [Album, "사진첩 +1"], MATCH_BAG: [Gift, "내 가방 복사"], MATCH_RIVAL_BAG: [Gift, "상대 가방 복사"],
-    EXCHANGE_SUIT: [ArrowLeftRight, `${suit} × 교환`], RECRUIT_SUIT: [PawPrint, `${suit} × 영입`], SELF_TRASH_SCORE: [Trophy, `${suit} × 인기 · 작별`], REPEAT_GAIN_SCORE: [Trophy, `${suit} × 인기`],
-    GAIN_ALBUM: [Gift, "사진첩 × 자원"], ALBUM_THEN_MOVE: [Backpack, "사진첩 + 가방"], LEVEL_SCORE: [TrendingUp, `확장 + 인기 ${effect.amount || 0}`],
+    NONE: [CircleMinus, null, "없음"], GAIN: [ResourceIcon, null, `${resource} +${effect.amount || 1}`], GAIN_SUIT: [ResourceIcon, SuitIcon, `${suit} × ${resource}`], SCORE_SUIT: [Trophy, SuitIcon, `${suit} × 인기`],
+    ALBUM_SUIT: [Album, SuitIcon, `${suit} × 사진첩`], MOVE_SUIT: [Backpack, SuitIcon, `${suit} × 가방`], TRASH_SUIT: [Trash2, SuitIcon, `${suit} × 작별`], LEVEL: [TrendingUp, null, "놀이터 +1"],
+    LEVEL_DISCOUNT: [TrendingUp, null, "할인 확장"], SCORE_BAG: [Trophy, Backpack, "가방 × 인기"], SCORE_ALBUM: [Trophy, Album, "사진첩 × 인기"], SCORE_LEVEL: [Trophy, TrendingUp, "레벨 × 인기"],
+    TRASH_RIVAL: [Trash2, PackageOpen, effect.reward ? "상대 작별 + 자원" : "상대 입구 작별"], ALBUM_ONE: [Album, null, "사진첩 +1"], MATCH_BAG: [Gift, Backpack, "내 가방 복사"], MATCH_RIVAL_BAG: [Gift, Backpack, "상대 가방 복사"],
+    EXCHANGE_SUIT: [ArrowLeftRight, SuitIcon, `${suit} × 교환`], RECRUIT_SUIT: [PawPrint, SuitIcon, `${suit} × 영입`], SELF_TRASH_SCORE: [Trophy, SuitIcon, `${suit} × 인기 · 작별`], REPEAT_GAIN_SCORE: [Trophy, SuitIcon, `${suit} × 인기`],
+    GAIN_ALBUM: [Gift, Album, "사진첩 × 자원"], ALBUM_THEN_MOVE: [Backpack, Album, "사진첩 + 가방"], LEVEL_SCORE: [TrendingUp, Trophy, `확장 + 인기 ${effect.amount || 0}`],
   };
-  const [Icon, label] = visuals[effect.type] || [Star, "특별 행동"];
-  return { Icon, label };
+  const [Icon, LeadIcon, label] = visuals[effect.type] || [Star, null, "특별 행동"];
+  return { Icon, LeadIcon, label };
+}
+
+function EffectIcons({ effect, inline = false }) {
+  const { Icon, LeadIcon } = effectVisual(effect);
+  return <span className={`effect-icons ${inline ? "inline" : ""}`} style={{ "--effect-suit": effect.suit ? SUITS[effect.suit]?.color : "#587061" }}>{LeadIcon && <><LeadIcon className="lead-icon" size={inline ? 14 : 15} /><i>×</i></>}<Icon className="result-icon" size={inline ? 14 : 16} /></span>;
 }
 
 function CardActionSummary({ kind, effect, text }) {
-  const { Icon, label } = effectVisual(effect);
+  const { label } = effectVisual(effect);
   const KindIcon = kind === "together" ? Users : Home;
-  return <div className={`card-action-summary ${kind}`} title={text}><span><KindIcon size={11} />{kind === "together" ? "함께" : "우리 집"}</span><strong><Icon size={16} />{label}</strong></div>;
+  return <div className={`card-action-summary ${kind}`} title={text}><span><KindIcon size={11} />{kind === "together" ? "함께" : "우리 집"}</span><strong><EffectIcons effect={effect} /><span>{label}</span></strong></div>;
 }
 
 function CardView({ card, selected = false, blocked = false, blockReason = "", compact = false, mini = false, onClick }) {

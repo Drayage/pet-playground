@@ -77,6 +77,8 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
 .info-group > div { display: flex; gap: 5px; flex-wrap: wrap; }
 .info-group span, .info-group b { font-size: 11px; padding: 3px 6px; border-radius: 4px; background: #eef1ec; font-weight: 600; }
 .info-group b { background: #dceadf; color: #245c3a; }
+.stat-chip { display: inline-flex; align-items: center; gap: 4px; }
+.stat-chip svg { flex: 0 0 auto; color: #52705b; }
 .pile-button { min-height: 27px; border-color: #d8ddd5; padding: 3px 6px; gap: 4px; background: #f7f8f5; font-size: 10px; }
 .pile-button span, .pile-button b { padding: 0; background: transparent; font-size: 10px; }
 .pile-button b { min-width: 17px; border-radius: 3px; background: #dceadf; padding: 1px 4px; }
@@ -149,8 +151,12 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
 .card-action-summary > span { display: flex; align-items: center; gap: 3px; color: #477158; font-size: 8px; font-weight: 800; }
 .card-action-summary.home > span { color: #65517e; }
 .card-action-summary > strong { min-width: 0; display: flex; align-items: center; gap: 4px; color: #273f2f; font-size: 10px; line-height: 1.2; }
-.card-action-summary > strong svg { flex: 0 0 auto; color: #397052; }
-.card-action-summary.home > strong svg { color: #71588e; }
+.effect-icons { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; }
+.effect-icons i { color: #89918a; font-size: 8px; font-style: normal; font-weight: 800; }
+.effect-icons .lead-icon { color: var(--effect-suit); }
+.effect-icons .result-icon { color: #397052; }
+.card-action-summary.home .effect-icons .result-icon { color: #71588e; }
+.effect-icons.inline { margin: 0 6px 0 1px; border-radius: 4px; background: #edf3ee; padding: 3px 5px; vertical-align: -4px; }
 .selected-mark { position: absolute; right: 7px; bottom: 7px; z-index: 4; display: flex; align-items: center; gap: 4px; border-radius: 4px; padding: 4px 6px; background: #245c3a; color: #fff; font-size: 9px; font-weight: 800; }
 .tag { padding: 4px 6px; border-radius: 4px; background: rgba(255, 240, 190, .95); color: #654c0e; font-size: 9px; font-weight: 800; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.14); }
 .card-block { position: absolute; inset: auto 7px 7px; min-height: 52px; padding: 8px; border-radius: 6px; background: rgba(38, 43, 39, .94); color: #fff; font-size: 10px; line-height: 1.35; display: flex; align-items: center; gap: 6px; }
@@ -183,7 +189,7 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
 .action-choice.unavailable label em { color: #777; background: #ddd; }
 .action-choice > p { margin: 9px 0 0; font-size: 12px; line-height: 1.45; }
 .order-number { width: 18px; height: 18px; margin-right: 6px; border-radius: 50%; background: #e1ece3; color: #2b6240; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; }
-.level-cost { margin-top: 7px; border-radius: 5px; background: #fff5d8; color: #66541e; padding: 6px 7px; font-size: 10px; font-weight: 700; }
+.level-cost { margin-top: 7px; border-radius: 5px; background: #fff5d8; color: #66541e; padding: 6px 7px; font-size: 10px; font-weight: 700; display: flex; align-items: center; gap: 5px; }
 .reason { margin-top: 7px; color: #9d3c35; font-size: 10px; }
 .calculation { margin-top: 9px; border-top: 1px dashed #cfd7ce; padding-top: 8px; display: grid; gap: 3px; }
 .calculation > strong { font-size: 10px; margin-bottom: 3px; }
@@ -278,7 +284,7 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
   .turn-guide > p { grid-row: 4; font-size: 11px; line-height: 1.35; }
   .quick-stats { grid-row: 5; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 7px; }
   .quick-stats span { min-width: 0; border-radius: 5px; background: #edf3ee; padding: 5px 3px; text-align: center; }
-  .quick-stats small { display: block; color: #6d786f; font-size: 8px; }
+  .quick-stats small { display: flex; align-items: center; justify-content: center; gap: 3px; color: #6d786f; font-size: 8px; }
   .quick-stats b { color: #244d35; font-size: 12px; }
 
   .tutorial { margin-top: 7px; padding: 7px 9px; gap: 7px; }
@@ -319,7 +325,7 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
   .card-action-summary { min-height: 47px; padding: 3px; }
   .card-action-summary > span { font-size: 7px; }
   .card-action-summary > strong { align-items: flex-start; flex-direction: column; gap: 1px; font-size: 8px; }
-  .card-action-summary > strong svg { width: 13px; height: 13px; }
+  .card-action-summary .effect-icons svg { width: 13px; height: 13px; }
   .selected-mark { right: 4px; bottom: 4px; padding: 3px 4px; font-size: 8px; }
   .card-block { min-height: 48px; }
 
