@@ -630,12 +630,13 @@ function HandArea({ state, current, selectedCard, onSelect }) {
     const iconDifference = b.suits.length - a.suits.length;
     return iconDifference || a.name.localeCompare(b.name, "ko");
   });
-  return <section className={`hand-area ${active ? "focus" : "muted"}`}>
-    <div className="zone-head"><div><span className="zone-kicker">지금 선택할 곳</span><h2>내 손패</h2></div><div className="zone-meta"><span>{current.hand.length}장</span><span className="swipe-hint">옆으로 넘겨 비교 <ChevronRight size={13} /></span></div></div>
-    <div className="hand">{sortedHand.map((card) => {
+  const cards = <div className="hand">{sortedHand.map((card) => {
       const available = cardAvailability(state, card);
-      return <CardView key={card.id} card={card} selected={selectedCard?.id === card.id} blocked={!active || !available.ok} blockReason={!active ? "지금은 손패를 선택하는 단계가 아닙니다." : available.reason} onClick={() => active && onSelect(card)} />;
-    })}</div>
+      return <CardView key={card.id} card={card} selected={selectedCard?.id === card.id} blocked={active && !available.ok} blockReason={available.reason} onClick={active ? () => onSelect(card) : undefined} />;
+    })}</div>;
+  return <section className={`hand-area ${active ? "focus" : "reference"}`}>
+    <div className="zone-head"><div><span className="zone-kicker">{active ? "지금 선택할 곳" : "선택할 때 참고"}</span><h2>내 손패</h2></div><div className="zone-meta"><span>{current.hand.length}장</span>{active && <span className="all-cards-hint">전체 카드</span>}</div></div>
+    {active ? cards : <details className="hand-reference"><summary><span>내 손패 펼쳐보기</span><small>카드 효과와 성향을 다시 확인할 수 있습니다.</small></summary>{cards}</details>}
   </section>;
 }
 
