@@ -2,14 +2,19 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Album,
+  ArrowLeftRight,
   ArrowUpDown,
+  Backpack,
   BookOpen,
   Box,
   Check,
   ChevronRight,
+  CircleMinus,
   Crown,
   Dog,
+  Gift,
   Hammer,
+  Home,
   Info,
   PackageOpen,
   PawPrint,
@@ -17,7 +22,12 @@ import {
   Shovel,
   Sparkles,
   Star,
+  Trash2,
+  TrendingUp,
+  Trophy,
+  Users,
   Waves,
+  X,
   Zap,
 } from "lucide-react";
 import "./styles.css";
@@ -447,6 +457,7 @@ function instruction(state) {
 export default function App() {
   const [playerCount, setPlayerCount] = useState(2);
   const [state, setState] = useState(() => newGame(2));
+  const [pileView, setPileView] = useState(null);
   const current = state.players[state.currentPlayerIndex];
   const selectedCard = current.hand.find((c) => c.id === state.selectedCardId) || null;
   const addedCards = current.hand.filter((c) => state.addedCardIds.includes(c.id));
@@ -571,7 +582,7 @@ export default function App() {
       {state.toast && <div className="toast" role="status"><Info size={16} /> {state.toast}</div>}
 
       <section className="layout">
-        <aside className="players">{state.players.map((player, index) => <PlayerPanel key={player.id} player={player} active={index === state.currentPlayerIndex} />)}</aside>
+        <aside className="players">{state.players.map((player, index) => <PlayerPanel key={player.id} player={player} active={index === state.currentPlayerIndex} onOpenPile={(pile) => setPileView({ playerIndex: index, pile })} />)}</aside>
 
         <section className="table">
           <HandArea state={state} current={current} selectedCard={selectedCard} onSelect={selectCard} />
@@ -584,6 +595,7 @@ export default function App() {
       </section>
 
       {state.phase === PHASES.FOLLOW && <FollowOverlay state={state} onSelect={(id) => setState({ ...state, followCardId: id })} onFollow={() => follow(false)} onPass={() => follow(true)} />}
+      {pileView && <PileOverlay player={state.players[pileView.playerIndex]} pile={pileView.pile} onClose={() => setPileView(null)} />}
     </main>
   );
 }
@@ -690,14 +702,49 @@ function CleanupSequence({ state }) {
   return <section className="cleanup"><h2>턴 종료 처리</h2>{messages.map((message, index) => <div className={`${index < state.cleanupStep ? "done" : ""} ${index === state.cleanupStep ? "active" : ""}`} key={message}><span>{index < state.cleanupStep ? <Check size={15} /> : index + 1}</span>{message}</div>)}</section>;
 }
 
-function PlayerPanel({ player, active }) {
-  return <article className={`player ${active ? "active" : ""}`}><div className="player-title"><Dog size={19} /><strong>{player.name}</strong>{active && <span>현재 차례</span>}</div><InfoGroup label="인기 점수"><b>{player.popularity}점</b></InfoGroup><InfoGroup label="놀이터"><span>레벨 {player.playgroundLevel}</span><span>종료 점수 +{levelScores[player.playgroundLevel]}</span><b>현재 최종 점수 {scorePlayer(player)}점</b></InfoGroup><InfoGroup label="보관함"><span>간식 {player.storage.treats}/4</span><span>장난감 {player.storage.toys}/4</span></InfoGroup><InfoGroup label="소풍 가방과 사진첩"><span>가방 {player.picnicBag.treats + player.picnicBag.toys}/{capacity(player)}</span><span>사진첩 {player.album.length}/{capacity(player)}</span></InfoGroup><InfoGroup label="카드 더미"><span>덱 {player.deck.length}</span><span>버림 {player.discard.length}</span><span>입구 {player.entrance.length}</span></InfoGroup></article>;
+function PlayerPanel({ player, active, onOpenPile }) {
+  return <article className={`player ${active ? "active" : ""}`}><div className="player-title"><Dog size={19} /><strong>{player.name}</strong>{active && <span>현재 차례</span>}</div><InfoGroup label="인기 점수"><b>{player.popularity}점</b></InfoGroup><InfoGroup label="놀이터"><span>레벨 {player.playgroundLevel}</span><span>종료 점수 +{levelScores[player.playgroundLevel]}</span><b>현재 최종 점수 {scorePlayer(player)}점</b></InfoGroup><InfoGroup label="보관함"><span>간식 {player.storage.treats}/4</span><span>장난감 {player.storage.toys}/4</span></InfoGroup><InfoGroup label="소풍 가방과 사진첩"><span>가방 {player.picnicBag.treats + player.picnicBag.toys}/{capacity(player)}</span><PileButton icon={Album} label="사진첩" count={player.album.length} onClick={() => onOpenPile("album")} /></InfoGroup><InfoGroup label="카드 더미"><PileButton icon={Box} label="덱" count={player.deck.length} onClick={active ? () => onOpenPile("deck") : null} reason="상대 덱의 내용은 공개되지 않습니다." /><PileButton icon={Trash2} label="버림" count={player.discard.length} onClick={() => onOpenPile("discard")} /><PileButton icon={PackageOpen} label="입구" count={player.entrance.length} onClick={() => onOpenPile("entrance")} /></InfoGroup></article>;
 }
 function InfoGroup({ label, children }) { return <div className="info-group"><small>{label}</small><div>{children}</div></div>; }
+function PileButton({ icon: Icon, label, count, onClick, reason = "카드 목록을 확인합니다." }) { return <button type="button" className="pile-button" disabled={!onClick} title={onClick ? `${label} 카드 ${count}장을 확인합니다.` : reason} onClick={onClick}><Icon size={12} /><span>{label}</span><b>{count}</b></button>; }
 
-function CardView({ card, selected = false, blocked = false, blockReason = "", compact = false, onClick }) {
+function effectVisual(effect) {
+  const suit = effect.suit ? SUITS[effect.suit]?.label : "성향";
+  const resource = effect.resource === "treats" ? "간식" : effect.resource === "toys" ? "장난감" : "자원";
+  const visuals = {
+    NONE: [CircleMinus, "없음"], GAIN: [Gift, `${resource} +${effect.amount || 1}`], GAIN_SUIT: [Gift, `${suit} × ${resource}`], SCORE_SUIT: [Trophy, `${suit} × 인기`],
+    ALBUM_SUIT: [Album, `${suit} × 사진첩`], MOVE_SUIT: [Backpack, `${suit} × 가방`], TRASH_SUIT: [Trash2, `${suit} × 작별`], LEVEL: [TrendingUp, "놀이터 +1"],
+    LEVEL_DISCOUNT: [TrendingUp, "할인 확장"], SCORE_BAG: [Trophy, "가방 × 인기"], SCORE_ALBUM: [Trophy, "사진첩 × 인기"], SCORE_LEVEL: [Trophy, "레벨 × 인기"],
+    TRASH_RIVAL: [Trash2, effect.reward ? "상대 작별 + 자원" : "상대 입구 작별"], ALBUM_ONE: [Album, "사진첩 +1"], MATCH_BAG: [Gift, "내 가방 복사"], MATCH_RIVAL_BAG: [Gift, "상대 가방 복사"],
+    EXCHANGE_SUIT: [ArrowLeftRight, `${suit} × 교환`], RECRUIT_SUIT: [PawPrint, `${suit} × 영입`], SELF_TRASH_SCORE: [Trophy, `${suit} × 인기 · 작별`], REPEAT_GAIN_SCORE: [Trophy, `${suit} × 인기`],
+    GAIN_ALBUM: [Gift, "사진첩 × 자원"], ALBUM_THEN_MOVE: [Backpack, "사진첩 + 가방"], LEVEL_SCORE: [TrendingUp, `확장 + 인기 ${effect.amount || 0}`],
+  };
+  const [Icon, label] = visuals[effect.type] || [Star, "특별 행동"];
+  return { Icon, label };
+}
+
+function CardActionSummary({ kind, effect, text }) {
+  const { Icon, label } = effectVisual(effect);
+  const KindIcon = kind === "together" ? Users : Home;
+  return <div className={`card-action-summary ${kind}`} title={text}><span><KindIcon size={11} />{kind === "together" ? "함께" : "우리 집"}</span><strong><Icon size={16} />{label}</strong></div>;
+}
+
+function CardView({ card, selected = false, blocked = false, blockReason = "", compact = false, mini = false, onClick }) {
   const artSrc = `/assets/card-art/${String(card.artIndex).padStart(2, "0")}.jpg`;
-  return <article className={`card ${selected ? "selected" : ""} ${blocked ? "blocked" : ""} ${compact ? "compact" : ""}`} onClick={!blocked ? onClick : undefined} tabIndex={!blocked && onClick ? 0 : undefined} onKeyDown={(e) => { if (!blocked && onClick && (e.key === "Enter" || e.key === " ")) onClick(); }} aria-disabled={blocked} title={blocked ? blockReason : "카드를 선택해 자세히 봅니다."}><div className="card-art" role="img" aria-label={`${card.name} 동물 일러스트`}><img src={artSrc} alt="" aria-hidden="true" /><div className="card-top"><SuitPills suits={card.suits} named />{card.bestFriend && <span className="tag">반려동물</span>}</div></div><div className="card-name"><h3>{card.name}</h3></div><div className="card-copy"><div className="card-action-copy together"><strong>함께 놀기</strong><p>{card.together}</p><small>다른 플레이어도 따라 할 수 있어요.</small></div><div className="card-action-copy home"><strong>우리 집 행동</strong><p>{card.home}</p><small>이 행동은 나만 사용할 수 있어요.</small></div></div>{selected && <div className="selected-mark"><Check size={15} /> 선택됨</div>}{blocked && <div className="card-block"><Info size={17} />{blockReason}</div>}</article>;
+  return <article className={`card ${selected ? "selected" : ""} ${blocked ? "blocked" : ""} ${compact ? "compact" : ""} ${mini ? "mini" : ""}`} onClick={!blocked ? onClick : undefined} tabIndex={!blocked && onClick ? 0 : undefined} onKeyDown={(e) => { if (!blocked && onClick && (e.key === "Enter" || e.key === " ")) onClick(); }} aria-disabled={blocked} title={blocked ? blockReason : `${card.name}: ${card.together} / ${card.home}`}><div className="card-art" role="img" aria-label={`${card.name} 동물 일러스트`}><img src={artSrc} alt="" aria-hidden="true" /><div className="card-top"><SuitPills suits={card.suits} named />{card.bestFriend && <span className="tag">반려동물</span>}</div></div><div className="card-name"><h3>{card.name}</h3></div><div className="card-copy"><CardActionSummary kind="together" effect={card.togetherEffect} text={card.together} /><CardActionSummary kind="home" effect={card.homeEffect} text={card.home} /></div>{selected && <div className="selected-mark"><Check size={15} /> 선택됨</div>}{blocked && <div className="card-block"><Info size={17} />{blockReason}</div>}</article>;
+}
+
+const PILE_LABELS = { deck: "덱", discard: "버린 카드", entrance: "놀이터 입구", album: "사진첩" };
+function PileOverlay({ player, pile, onClose }) {
+  const cards = player[pile] || [];
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => { if (event.key === "Escape") onClose(); };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", handleKeyDown); };
+  }, [onClose]);
+  return <div className="overlay pile-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="pile-modal" role="dialog" aria-modal="true" aria-label={`${player.name} ${PILE_LABELS[pile]}`}><header><div><span className="modal-kicker">{player.name}</span><h2>{PILE_LABELS[pile]} <b>{cards.length}</b></h2></div><button className="icon-button" onClick={onClose} title="닫기" aria-label="카드 목록 닫기"><X size={20} /></button></header>{cards.length ? <div className="pile-grid">{cards.map((card) => <CardView key={card.id} card={card} mini />)}</div> : <div className="pile-empty"><Box size={28} /><p>이 카드 더미는 비어 있습니다.</p></div>}</section></div>;
 }
 
 function SuitPills({ suits, named = false }) {
