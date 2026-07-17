@@ -150,13 +150,13 @@ const ART_BY_NAME = {
   왕관앵무: 17, 황금리트리버: 0, 꼬마공작: 32, 푸딩냥: 1, 조그미: 14,
   낙서앵무: 2, 점박이: 45, 방긋이: 33, 찰싹남매: 29, 냥냥이: 16,
   동전이: 3, 완두콩: 34, 땜장이: 9, 풍뎅이: 25, 외발이: 40,
-  무스: 12, 대장이: 30, 정찰이: 35, "두더지 가족": 24, 사마귀: 40,
+  무스: 12, 대장이: 42, 정찰이: 35, "두더지 가족": 24, 사마귀: 10,
   꿈틀이: 44, "장난꾸러기 수달": 5, 번개오리: 6, "첨벙이 삼총사": 21,
-  아기물개: 7, 돌진수달: 20, 꼬마대장: 36, 박사부엉이: 47, 선장앵무: 32,
-  천재햄스터: 18, 뼈다귀: 15, 반창고: 23, 요리왕: 2, 국수쌍둥이: 3,
-  연기구름: 29, 질주견: 15, 먹보웰시: 30, 로켓형제: 11, 미끄럼이: 36,
-  뾰족이: 38, 꼬마개미: 40, 천둥이: 45, 알콩이: 0, 달콩이: 1,
-  밤콩이: 3, 새콩이: 2, 찰떡이: 4, 땅콩이: 8, 쌩쌩이: 11, 첨벙이: 6,
+  아기물개: 7, 돌진수달: 20, 꼬마대장: 36, 박사부엉이: 31, 선장앵무: 47,
+  천재햄스터: 18, 뼈다귀: 41, 반창고: 23, 요리왕: 28, 국수쌍둥이: 43,
+  연기구름: 46, 질주견: 30, 먹보웰시: 15, 로켓형제: 11, 미끄럼이: 37,
+  뾰족이: 38, 꼬마개미: 39, 천둥이: 13, 알콩이: 49, 달콩이: 19,
+  밤콩이: 27, 새콩이: 48, 찰떡이: 4, 땅콩이: 8, 쌩쌩이: 26, 첨벙이: 22,
 };
 
 function expandCards(defs, prefix, bestFriend = false, artOffset = 0) {
@@ -460,6 +460,7 @@ export default function App() {
   const [playerCount, setPlayerCount] = useState(2);
   const [state, setState] = useState(() => newGame(2));
   const [pileView, setPileView] = useState(null);
+  const [inspectedCard, setInspectedCard] = useState(null);
   const current = state.players[state.currentPlayerIndex];
   const selectedCard = current.hand.find((c) => c.id === state.selectedCardId) || null;
   const addedCards = current.hand.filter((c) => state.addedCardIds.includes(c.id));
@@ -587,7 +588,7 @@ export default function App() {
         <aside className="players">{state.players.map((player, index) => <PlayerPanel key={player.id} player={player} active={index === state.currentPlayerIndex} onOpenPile={(pile) => setPileView({ playerIndex: index, pile })} />)}</aside>
 
         <section className="table">
-          <HandArea state={state} current={current} selectedCard={selectedCard} onSelect={selectCard} />
+          <HandArea state={state} current={current} selectedCard={selectedCard} onSelect={selectCard} onInspect={(card, reason) => setInspectedCard({ card, reason })} />
           <ParkArea state={state} onRecruit={recruit} />
           {state.phase === PHASES.RECRUIT && <RecruitZones state={state} onRecruit={recruit} />}
           {state.phase === PHASES.CLEANUP && <CleanupSequence state={state} />}
@@ -598,6 +599,7 @@ export default function App() {
 
       {state.phase === PHASES.FOLLOW && <FollowOverlay state={state} onSelect={(id) => setState({ ...state, followCardId: id })} onFollow={() => follow(false)} onPass={() => follow(true)} />}
       {pileView && <PileOverlay player={state.players[pileView.playerIndex]} pile={pileView.pile} onClose={() => setPileView(null)} />}
+      {inspectedCard && <CardInspectOverlay card={inspectedCard.card} reason={inspectedCard.reason} onClose={() => setInspectedCard(null)} />}
     </main>
   );
 }
@@ -622,7 +624,7 @@ function Tutorial({ turn, phase }) {
   return <aside className="tutorial"><Sparkles size={18} /><div><strong>{copy[0]}</strong><span>{copy[1]}</span></div></aside>;
 }
 
-function HandArea({ state, current, selectedCard, onSelect }) {
+function HandArea({ state, current, selectedCard, onSelect, onInspect }) {
   const active = state.phase === PHASES.SELECT;
   const sortedHand = [...current.hand].sort((a, b) => {
     const availabilityDifference = Number(cardAvailability(state, b).ok) - Number(cardAvailability(state, a).ok);
@@ -634,7 +636,7 @@ function HandArea({ state, current, selectedCard, onSelect }) {
   });
   const cards = <div className="hand">{sortedHand.map((card) => {
       const available = cardAvailability(state, card);
-      return <CardView key={card.id} card={card} selected={selectedCard?.id === card.id} blocked={active && !available.ok} blockReason={available.reason} onClick={active ? () => onSelect(card) : undefined} />;
+      return <CardView key={card.id} card={card} selected={selectedCard?.id === card.id} blocked={active && !available.ok} blockReason={available.reason} onClick={active ? () => onSelect(card) : undefined} onInspect={active && !available.ok ? () => onInspect(card, available.reason) : undefined} />;
     })}</div>;
   return <section className={`hand-area ${active ? "focus" : "reference"}`}>
     <div className="zone-head"><div><span className="zone-kicker">{active ? "지금 선택할 곳" : "선택할 때 참고"}</span><h2>내 손패</h2></div><div className="zone-meta"><span>{current.hand.length}장</span>{active && <span className="all-cards-hint">전체 카드</span>}</div></div>
@@ -740,9 +742,10 @@ function CardActionSummary({ kind, effect, text }) {
   return <div className={`card-action-summary ${kind}`} title={text}><span><KindIcon size={11} />{kind === "together" ? "함께" : "우리 집"}</span><strong><EffectIcons effect={effect} /><span>{label}</span></strong></div>;
 }
 
-function CardView({ card, selected = false, blocked = false, blockReason = "", compact = false, mini = false, onClick }) {
+function CardView({ card, selected = false, blocked = false, blockReason = "", compact = false, mini = false, onClick, onInspect }) {
   const artSrc = `/assets/card-art/${String(card.artIndex).padStart(2, "0")}.jpg`;
-  return <article className={`card ${selected ? "selected" : ""} ${blocked ? "blocked" : ""} ${compact ? "compact" : ""} ${mini ? "mini" : ""}`} onClick={!blocked ? onClick : undefined} tabIndex={!blocked && onClick ? 0 : undefined} onKeyDown={(e) => { if (!blocked && onClick && (e.key === "Enter" || e.key === " ")) onClick(); }} aria-disabled={blocked} title={blocked ? blockReason : `${card.name}: ${card.together} / ${card.home}`}><div className="card-art" role="img" aria-label={`${card.name} 동물 일러스트`}><img src={artSrc} alt="" aria-hidden="true" /><div className="card-top"><SuitPills suits={card.suits} named />{card.bestFriend && <span className="tag">반려동물</span>}</div></div><div className="card-name"><h3>{card.name}</h3></div><div className="card-copy"><CardActionSummary kind="together" effect={card.togetherEffect} text={card.together} /><CardActionSummary kind="home" effect={card.homeEffect} text={card.home} /></div>{selected && <div className="selected-mark"><Check size={15} /> 선택됨</div>}{blocked && <div className="card-block"><Info size={17} />{blockReason}</div>}</article>;
+  const handleClick = blocked ? onInspect : onClick;
+  return <article className={`card ${selected ? "selected" : ""} ${blocked ? "blocked" : ""} ${compact ? "compact" : ""} ${mini ? "mini" : ""}`} onClick={handleClick} tabIndex={handleClick ? 0 : undefined} onKeyDown={(e) => { if (handleClick && (e.key === "Enter" || e.key === " ")) handleClick(); }} aria-disabled={blocked} title={blocked ? `${blockReason} 눌러서 카드 효과를 확인합니다.` : `${card.name}: ${card.together} / ${card.home}`}><div className="card-art" role="img" aria-label={`${card.name} 동물 일러스트`}><img src={artSrc} alt="" aria-hidden="true" /><div className="card-top"><SuitPills suits={card.suits} named />{card.bestFriend && <span className="tag">반려동물</span>}</div></div><div className="card-name"><h3>{card.name}</h3></div><div className="card-copy"><CardActionSummary kind="together" effect={card.togetherEffect} text={card.together} /><CardActionSummary kind="home" effect={card.homeEffect} text={card.home} /></div>{selected && <div className="selected-mark"><Check size={15} /> 선택됨</div>}{blocked && <div className="card-block"><Info size={17} /><span>{blockReason}<small>눌러서 효과 보기</small></span></div>}</article>;
 }
 
 const PILE_LABELS = { deck: "덱", discard: "버린 카드", entrance: "놀이터 입구", album: "사진첩" };
@@ -756,6 +759,18 @@ function PileOverlay({ player, pile, onClose }) {
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", handleKeyDown); };
   }, [onClose]);
   return <div className="overlay pile-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="pile-modal" role="dialog" aria-modal="true" aria-label={`${player.name} ${PILE_LABELS[pile]}`}><header><div><span className="modal-kicker">{player.name}</span><h2>{PILE_LABELS[pile]} <b>{cards.length}</b></h2></div><button className="icon-button" onClick={onClose} title="닫기" aria-label="카드 목록 닫기"><X size={20} /></button></header>{cards.length ? <div className="pile-grid">{cards.map((card) => <CardView key={card.id} card={card} mini />)}</div> : <div className="pile-empty"><Box size={28} /><p>이 카드 더미는 비어 있습니다.</p></div>}</section></div>;
+}
+
+function CardInspectOverlay({ card, reason, onClose }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => { if (event.key === "Escape") onClose(); };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", handleKeyDown); };
+  }, [onClose]);
+  const artSrc = `/assets/card-art/${String(card.artIndex).padStart(2, "0")}.jpg`;
+  return <div className="overlay inspect-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="inspect-modal" role="dialog" aria-modal="true" aria-label={`${card.name} 카드 효과`}><header><div><span className="modal-kicker">카드 효과 확인</span><h2>{card.name}</h2></div><button className="icon-button" onClick={onClose} title="닫기" aria-label="카드 효과 닫기"><X size={20} /></button></header><div className="inspect-body"><img src={artSrc} alt={`${card.name} 동물 일러스트`} /><div className="inspect-content"><SuitPills suits={card.suits} named /><div className="inspect-action together"><strong><Users size={15} />함께 놀기</strong><p><EffectIcons effect={card.togetherEffect} inline />{card.together}</p><small>다른 플레이어도 따라 할 수 있어요.</small></div><div className="inspect-action home"><strong><Home size={15} />우리 집 행동</strong><p><EffectIcons effect={card.homeEffect} inline />{card.home}</p><small>이 행동은 나만 사용할 수 있어요.</small></div><div className="inspect-reason"><Info size={16} /><div><strong>지금 사용할 수 없는 이유</strong><p>{reason}</p></div></div></div></div></section></div>;
 }
 
 function SuitPills({ suits, named = false }) {
