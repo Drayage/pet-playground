@@ -90,8 +90,7 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
 
 .card {
   position: relative;
-  min-height: 390px;
-  aspect-ratio: 5 / 7;
+  min-height: 460px;
   border: 5px solid #f8f4e9;
   outline: 1px solid #b8b4a9;
   border-radius: 8px;
@@ -105,16 +104,29 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
 .card[tabindex] { cursor: pointer; }
 .card[tabindex]:hover { transform: translateY(-4px) rotate(-.3deg); outline-color: #567b62; box-shadow: 0 10px 22px rgba(35, 67, 46, .2); }
 .card.selected { border-color: #d8eddd; outline: 4px solid #2f6f49; box-shadow: 0 0 0 5px #d8eadc, 0 10px 22px rgba(35, 67, 46, .2); }
+.card.blocked { filter: grayscale(1); opacity: .58; background: #e8e8e5; box-shadow: none; }
+.card.blocked .card-art::after { background: rgba(70, 70, 70, .25); }
+.card.blocked .card-block { opacity: 1; filter: none; background: rgba(48, 48, 48, .96); }
 .card.compact { min-height: 350px; }
 .card-art {
   position: relative;
-  flex: 0 0 43%;
+  flex: 0 0 auto;
+  aspect-ratio: 1 / 1;
   min-height: 145px;
-  background-image: url('/assets/animal-card-atlas.png');
-  background-size: 500% 1000%;
-  background-position: var(--art-x) var(--art-y);
-  background-repeat: no-repeat;
+  overflow: hidden;
   border-bottom: 3px solid #eee5d4;
+  background: #f3f0e8;
+}
+.card-art > img {
+  position: absolute;
+  z-index: 0;
+  width: 500%;
+  height: 1000%;
+  max-width: none;
+  left: calc(var(--art-column) * -100%);
+  top: calc(var(--art-row) * -100%);
+  object-fit: fill;
+  display: block;
 }
 .card-art::after { content: ""; position: absolute; inset: auto 0 0; height: 32%; background: linear-gradient(transparent, rgba(30, 30, 25, .34)); pointer-events: none; }
 .card-top { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; min-height: 29px; gap: 6px; padding: 7px; }

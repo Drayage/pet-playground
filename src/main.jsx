@@ -41,6 +41,7 @@ const PHASES = {
 };
 
 const STEPS = ["동물 선택", "행동 선택", "같이 놀기", "친해지기"];
+const SUIT_ORDER = ["CHARM", "CRAFT", "DIG", "WATER", "LEARN", "RUN", "WILD"];
 const levelScores = [0, 1, 3, 9, 16, 23];
 const levelCosts = [
   { any: 2 },
@@ -597,9 +598,15 @@ function Tutorial({ turn, phase }) {
 
 function HandArea({ state, current, selectedCard, onSelect }) {
   const active = state.phase === PHASES.SELECT;
+  const sortedHand = [...current.hand].sort((a, b) => {
+    const suitDifference = SUIT_ORDER.indexOf(a.suits[0]) - SUIT_ORDER.indexOf(b.suits[0]);
+    if (suitDifference !== 0) return suitDifference;
+    const iconDifference = b.suits.length - a.suits.length;
+    return iconDifference || a.name.localeCompare(b.name, "ko");
+  });
   return <section className={`hand-area ${active ? "focus" : "muted"}`}>
     <div className="zone-head"><div><span className="zone-kicker">지금 선택할 곳</span><h2>내 손패</h2></div><span>{current.hand.length}장</span></div>
-    <div className="hand">{current.hand.map((card) => {
+    <div className="hand">{sortedHand.map((card) => {
       const available = cardAvailability(state, card);
       return <CardView key={card.id} card={card} selected={selectedCard?.id === card.id} blocked={!active || !available.ok} blockReason={!active ? "지금은 손패를 선택하는 단계가 아닙니다." : available.reason} onClick={() => active && onSelect(card)} />;
     })}</div>
@@ -677,8 +684,8 @@ function InfoGroup({ label, children }) { return <div className="info-group"><sm
 function CardView({ card, selected = false, blocked = false, blockReason = "", compact = false, onClick }) {
   const artColumn = card.artIndex % 5;
   const artRow = Math.floor(card.artIndex / 5);
-  const artStyle = { "--art-x": `${(artColumn / 4) * 100}%`, "--art-y": `${(artRow / 9) * 100}%` };
-  return <article className={`card ${selected ? "selected" : ""} ${blocked ? "blocked" : ""} ${compact ? "compact" : ""}`} onClick={!blocked ? onClick : undefined} tabIndex={!blocked && onClick ? 0 : undefined} onKeyDown={(e) => { if (!blocked && onClick && (e.key === "Enter" || e.key === " ")) onClick(); }} aria-disabled={blocked} title={blocked ? blockReason : "카드를 선택해 자세히 봅니다."}><div className="card-art" style={artStyle} role="img" aria-label={`${card.name} 동물 일러스트`}><div className="card-top"><SuitPills suits={card.suits} named />{card.bestFriend && <span className="tag">반려동물</span>}</div></div><div className="card-name"><h3>{card.name}</h3></div><div className="card-copy"><div className="card-action-copy together"><strong>함께 놀기</strong><p>{card.together}</p><small>다른 플레이어도 따라 할 수 있어요.</small></div><div className="card-action-copy home"><strong>우리 집 행동</strong><p>{card.home}</p><small>이 행동은 나만 사용할 수 있어요.</small></div></div>{selected && <div className="selected-mark"><Check size={15} /> 선택됨</div>}{blocked && <div className="card-block"><Info size={17} />{blockReason}</div>}</article>;
+  const artStyle = { "--art-column": artColumn, "--art-row": artRow };
+  return <article className={`card ${selected ? "selected" : ""} ${blocked ? "blocked" : ""} ${compact ? "compact" : ""}`} onClick={!blocked ? onClick : undefined} tabIndex={!blocked && onClick ? 0 : undefined} onKeyDown={(e) => { if (!blocked && onClick && (e.key === "Enter" || e.key === " ")) onClick(); }} aria-disabled={blocked} title={blocked ? blockReason : "카드를 선택해 자세히 봅니다."}><div className="card-art" style={artStyle} role="img" aria-label={`${card.name} 동물 일러스트`}><img src="/assets/animal-card-atlas.png" alt="" aria-hidden="true" /><div className="card-top"><SuitPills suits={card.suits} named />{card.bestFriend && <span className="tag">반려동물</span>}</div></div><div className="card-name"><h3>{card.name}</h3></div><div className="card-copy"><div className="card-action-copy together"><strong>함께 놀기</strong><p>{card.together}</p><small>다른 플레이어도 따라 할 수 있어요.</small></div><div className="card-action-copy home"><strong>우리 집 행동</strong><p>{card.home}</p><small>이 행동은 나만 사용할 수 있어요.</small></div></div>{selected && <div className="selected-mark"><Check size={15} /> 선택됨</div>}{blocked && <div className="card-block"><Info size={17} />{blockReason}</div>}</article>;
 }
 
 function SuitPills({ suits, named = false }) {
