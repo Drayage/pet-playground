@@ -67,10 +67,12 @@ const E = {
   none: () => ({ type: "NONE" }),
   gain: (resource, amount = 1) => ({ type: "GAIN", resource, amount }),
   gainSuit: (suit, resource = "choice") => ({ type: "GAIN_SUIT", suit, resource, scaled: true }),
+  gainChosenSuit: () => ({ type: "GAIN_CHOSEN_SUIT", resource: "choice", scaled: true, dynamicSuit: true }),
   scoreSuit: (suit) => ({ type: "SCORE_SUIT", suit, scaled: true }),
   albumSuit: (suit) => ({ type: "ALBUM_SUIT", suit, scaled: true }),
   moveSuit: (suit) => ({ type: "MOVE_SUIT", suit, scaled: true }),
   trashSuit: (suit, reward = null) => ({ type: "TRASH_SUIT", suit, reward, scaled: true }),
+  trashOne: () => ({ type: "TRASH_ONE" }),
   level: () => ({ type: "LEVEL" }),
   levelDiscount: () => ({ type: "LEVEL_DISCOUNT" }),
   bagScore: () => ({ type: "SCORE_BAG" }),
@@ -91,7 +93,7 @@ const C = (name, count, suits, together, home, togetherEffect, homeEffect) => ({
 
 // 최종 확정 카드 목록의 60장. 이름, 수량, 성향, 행동 문구를 원문 그대로 관리한다.
 const FINAL_NORMAL_CARDS = [
-  C("왕관앵무", 2, ["CHARM"], "없음", "놀이 성향 하나를 선택한다. 선택한 성향 아이콘 수만큼 간식 또는 장난감을 얻는다.", E.none(), E.gainSuit("CHARM")),
+  C("왕관앵무", 2, ["CHARM"], "없음", "놀이 성향 하나를 선택한다. 선택한 성향 아이콘 수만큼 간식 또는 장난감을 얻는다.", E.none(), E.gainChosenSuit()),
   C("황금리트리버", 2, ["CHARM"], "재롱 아이콘 수만큼 자원 1개를 다른 종류로 바꾼다.", "상대 놀이터 입구의 일반 동물 1장과 작별한다.", E.exchangeSuit("CHARM"), E.trashRival()),
   C("꼬마공작", 2, ["CHARM"], "재롱 아이콘 수만큼 손의 카드를 단골 사진첩에 등록한다.", "단골 사진첩의 카드 수만큼 인기 점수를 얻는다.", E.albumSuit("CHARM"), E.albumScore()),
   C("푸딩냥", 2, ["CHARM", "WILD"], "없음", "없음", E.none(), E.none()),
@@ -136,10 +138,10 @@ const FINAL_NORMAL_CARDS = [
 ];
 
 const BEST_FRIENDS = [
-  C("알콩이", 1, ["WILD"], "간식 2개 또는 장난감 2개를 얻는다.", "내 카드 1장과 작별한다.", E.gain("choice", 2), E.trashSuit("WILD")),
-  C("달콩이", 1, ["WILD"], "간식 2개 또는 장난감 2개를 얻는다.", "내 카드 1장과 작별한다.", E.gain("choice", 2), E.trashSuit("WILD")),
-  C("밤콩이", 1, ["WILD"], "간식 2개 또는 장난감 2개를 얻는다.", "내 카드 1장과 작별한다.", E.gain("choice", 2), E.trashSuit("WILD")),
-  C("새콩이", 1, ["WILD"], "간식 2개 또는 장난감 2개를 얻는다.", "내 카드 1장과 작별한다.", E.gain("choice", 2), E.trashSuit("WILD")),
+  C("알콩이", 1, ["WILD"], "간식 2개 또는 장난감 2개를 얻는다.", "내 카드 1장과 작별한다.", E.gain("choice", 2), E.trashOne()),
+  C("달콩이", 1, ["WILD"], "간식 2개 또는 장난감 2개를 얻는다.", "내 카드 1장과 작별한다.", E.gain("choice", 2), E.trashOne()),
+  C("밤콩이", 1, ["WILD"], "간식 2개 또는 장난감 2개를 얻는다.", "내 카드 1장과 작별한다.", E.gain("choice", 2), E.trashOne()),
+  C("새콩이", 1, ["WILD"], "간식 2개 또는 장난감 2개를 얻는다.", "내 카드 1장과 작별한다.", E.gain("choice", 2), E.trashOne()),
   C("찰떡이", 1, ["CRAFT"], "놀이터를 1단계 확장한다.", "없음", E.level(), E.none()),
   C("땅콩이", 1, ["DIG"], "놀이터를 1단계 확장한다.", "없음", E.level(), E.none()),
   C("쌩쌩이", 1, ["RUN"], "놀이터를 1단계 확장한다.", "없음", E.level(), E.none()),
@@ -224,6 +226,7 @@ function newGame(playerCount = 2) {
     selectedActions: { together: true, home: true },
     actionOrder: ["together", "home"],
     resourceChoice: "treats",
+    suitChoice: "CHARM",
     addedCardIds: [],
     playedCard: null,
     followQueue: [],
@@ -243,6 +246,7 @@ function suitCount(cards, suit) {
 function sharesSuit(a, b) {
   return a.suits.some((s) => s === "WILD" || b.suits.includes(s) || b.suits.includes("WILD"));
 }
+function resolvedSuit(state, effect) { return effect.dynamicSuit ? state.suitChoice : effect.suit; }
 function canPayLevel(player, discount = 0) {
   if (player.playgroundLevel >= 5) return false;
   const cost = levelCosts[player.playgroundLevel];
@@ -287,7 +291,7 @@ function actionAvailability(state, playerIndex, card, effect, selectedCardId = n
   const player = state.players[playerIndex];
   const otherHand = player.hand.filter((c) => c.id !== selectedCardId);
   const room = player.picnicBag.treats + player.picnicBag.toys < capacity(player);
-  const required = effect.scaled ? suitCount([card], effect.suit) : 1;
+  const required = effect.scaled ? suitCount([card], resolvedSuit(state, effect)) : 1;
   const bagRoom = capacity(player) - player.picnicBag.treats - player.picnicBag.toys;
   switch (effect.type) {
     case "NONE": return { ok: false, reason: "이 행동은 없습니다." };
@@ -300,6 +304,7 @@ function actionAvailability(state, playerIndex, card, effect, selectedCardId = n
     case "ALBUM_THEN_MOVE": return { ok: otherHand.length >= 1 && player.album.length < capacity(player) && player.storage.treats + player.storage.toys >= 1 && room, reason: otherHand.length < 1 ? "사진첩에 넣을 손 카드가 없습니다." : !room ? "소풍 가방이 가득 찼습니다." : "소풍 가방에 넣을 자원이 없습니다." };
     case "MOVE_SUIT": return { ok: bagRoom >= required && player.storage.treats + player.storage.toys >= required, reason: bagRoom < required ? "소풍 가방의 빈자리가 부족합니다." : "보관함에 옮길 자원이 부족합니다." };
     case "TRASH_SUIT": return { ok: otherHand.length >= required, reason: "작별할 다른 손 카드가 부족합니다." };
+    case "TRASH_ONE": return { ok: otherHand.length >= 1, reason: "작별할 다른 손 카드가 없습니다." };
     case "MATCH_BAG": return { ok: player.picnicBag.treats + player.picnicBag.toys > 0 && (player.storage.treats < 4 || player.storage.toys < 4), reason: "소풍 가방이 비어 있거나 보관함에 자리가 없습니다." };
     case "MATCH_RIVAL_BAG": return { ok: state.players.some((p, i) => i !== playerIndex && p.picnicBag.treats + p.picnicBag.toys > 0), reason: "자원을 참고할 상대 소풍 가방이 비어 있습니다." };
     case "SCORE_BAG": return { ok: player.picnicBag.treats + player.picnicBag.toys > 0, reason: "소풍 가방에 점수로 바꿀 자원이 없습니다." };
@@ -327,21 +332,22 @@ function addResource(player, resource, amount) {
 
 function effectAmount(state, card, addedCards, effect) {
   if (!effect.scaled) return effect.amount || 1;
-  return suitCount([card, ...addedCards, ...state.players[state.currentPlayerIndex].album], effect.suit);
+  return suitCount([card, ...addedCards, ...state.players[state.currentPlayerIndex].album], resolvedSuit(state, effect));
 }
 
 function calculation(state, card, addedCards, effect) {
   if (!effect.scaled) return null;
-  const lead = suitCount([card], effect.suit);
-  const added = suitCount(addedCards, effect.suit);
-  const album = suitCount(state.players[state.currentPlayerIndex].album, effect.suit);
-  return { suit: effect.suit, lead, added, album, total: lead + added + album };
+  const suit = resolvedSuit(state, effect);
+  const lead = suitCount([card], suit);
+  const added = suitCount(addedCards, suit);
+  const album = suitCount(state.players[state.currentPlayerIndex].album, suit);
+  return { suit, lead, added, album, total: lead + added + album };
 }
 
 function boostIsPerformable(state, card, addedCards, candidate, effect) {
   const player = state.players[state.currentPlayerIndex];
   const extras = [...addedCards, candidate];
-  const amount = suitCount([card, ...extras, ...player.album], effect.suit);
+  const amount = suitCount([card, ...extras, ...player.album], resolvedSuit(state, effect));
   const remainingHand = player.hand.filter((c) => c.id !== card.id && !extras.some((extra) => extra.id === c.id)).length;
   const bagRoom = capacity(player) - player.picnicBag.treats - player.picnicBag.toys;
   if (effect.type === "ALBUM_SUIT") return remainingHand >= amount && capacity(player) - player.album.length >= amount;
@@ -354,21 +360,22 @@ function boostIsPerformable(state, card, addedCards, candidate, effect) {
 
 function expectedText(state, card, addedCards, effect, choice) {
   const amount = effectAmount(state, card, addedCards, effect);
-  if (["GAIN", "GAIN_SUIT", "GAIN_ALBUM"].includes(effect.type)) {
+  if (["GAIN", "GAIN_SUIT", "GAIN_CHOSEN_SUIT", "GAIN_ALBUM"].includes(effect.type)) {
     const resource = effect.resource === "toys" ? "장난감" : effect.resource === "treats" ? "간식" : choice === "toys" ? "장난감" : "간식";
     return `${resource} ${effect.type === "GAIN_ALBUM" ? state.players[state.currentPlayerIndex].album.length : amount}개 획득`;
   }
   if (["SCORE_SUIT", "SCORE_BAG", "SCORE_ALBUM", "SCORE_LEVEL", "SELF_TRASH_SCORE"].includes(effect.type)) return `인기 점수 ${amount}점 획득`;
   if (["LEVEL", "LEVEL_DISCOUNT", "LEVEL_SCORE"].includes(effect.type)) return "놀이터 1단계 확장";
+  if (effect.type === "TRASH_ONE") return "카드 1장과 작별";
   if (effect.type === "NONE") return "결과 없음";
   return `${amount}회 행동 수행`;
 }
 
 function applyEffect(next, playerIndex, card, effect, addedCards, choice, label) {
   const player = next.players[playerIndex];
-  const amount = effect.scaled ? suitCount([card, ...addedCards, ...player.album], effect.suit) : effect.amount || 1;
+  const amount = effect.scaled ? suitCount([card, ...addedCards, ...player.album], resolvedSuit(next, effect)) : effect.amount || 1;
   let message = "행동을 완료했습니다.";
-  if (effect.type === "GAIN" || effect.type === "GAIN_SUIT") {
+  if (effect.type === "GAIN" || effect.type === "GAIN_SUIT" || effect.type === "GAIN_CHOSEN_SUIT") {
     const resource = effect.resource === "choice" || !effect.resource ? choice : effect.resource;
     const result = addResource(player, resource, amount);
     message = `${result.target === "treats" ? "간식" : "장난감"} ${result.gained}개를 얻었습니다.`;
@@ -417,6 +424,9 @@ function applyEffect(next, playerIndex, card, effect, addedCards, choice, label)
     const removed = player.hand.splice(0, Math.min(amount, player.hand.length));
     if (effect.reward === "toys") addResource(player, "toys", removed.length);
     if (effect.reward === "score") player.popularity += removed.length;
+    message = `카드 ${removed.length}장과 작별했습니다.`;
+  } else if (effect.type === "TRASH_ONE") {
+    const removed = player.hand.splice(0, Math.min(1, player.hand.length));
     message = `카드 ${removed.length}장과 작별했습니다.`;
   } else if (effect.type === "REPEAT_GAIN_SCORE") {
     const repeats = Math.min(amount, player.storage[effect.resource]); player.storage[effect.resource] -= repeats; player.popularity += repeats; message = `자원 ${repeats}개를 사용하고 인기 ${repeats}점을 얻었습니다.`;
@@ -513,6 +523,7 @@ export default function App() {
   function toggleAction(key) { const next = clone(state); next.selectedActions[key] = !next.selectedActions[key]; setState(next); }
   function swapActionOrder() { const next = clone(state); next.actionOrder.reverse(); setState(next); }
   function setChoice(choice) { const next = clone(state); next.resourceChoice = choice; setState(next); }
+  function setSuitChoice(suit) { const next = clone(state); next.suitChoice = suit; next.addedCardIds = []; setState(next); }
   function toggleAdded(card) {
     const next = clone(state);
     if (next.addedCardIds.includes(card.id)) next.addedCardIds = next.addedCardIds.filter((id) => id !== card.id);
@@ -594,7 +605,7 @@ export default function App() {
           {state.phase === PHASES.CLEANUP && <CleanupSequence state={state} />}
         </section>
 
-        <DetailPanel state={state} card={selectedCard} addedCards={addedCards} onToggleAction={toggleAction} onSwapOrder={swapActionOrder} onChoice={setChoice} onToggleAdded={toggleAdded} onStart={startActions} onSkip={skipCard} />
+        <DetailPanel state={state} card={selectedCard} addedCards={addedCards} onToggleAction={toggleAction} onSwapOrder={swapActionOrder} onChoice={setChoice} onSuitChoice={setSuitChoice} onToggleAdded={toggleAdded} onStart={startActions} onSkip={skipCard} />
       </section>
 
       {state.phase === PHASES.FOLLOW && <FollowOverlay state={state} onSelect={(id) => setState({ ...state, followCardId: id })} onFollow={() => follow(false)} onPass={() => follow(true)} />}
@@ -661,13 +672,14 @@ function RecruitZones({ state, onRecruit }) {
   </section>;
 }
 
-function DetailPanel({ state, card, addedCards, onToggleAction, onSwapOrder, onChoice, onToggleAdded, onStart, onSkip }) {
+function DetailPanel({ state, card, addedCards, onToggleAction, onSwapOrder, onChoice, onSuitChoice, onToggleAdded, onStart, onSkip }) {
   const current = state.players[state.currentPlayerIndex];
   if (!card) return <aside className="detail-panel"><div className="detail-empty"><PawPrint size={30} /><h2>동물을 선택해 주세요</h2><p>손패에서 함께 놀 동물 한 마리를 선택하면 행동과 예상 결과가 이곳에 표시됩니다.</p><div className="rule-note">턴 종료 시 남은 반려동물은 버림 더미로, 남은 일반 동물은 내 놀이터 입구로 이동합니다.</div>{state.phase === PHASES.SELECT && <button onClick={onSkip}>카드 내지 않고 넘어가기</button>}</div><RecentLog log={state.log} /></aside>;
   const available = cardAvailability(state, card);
   const effects = [{ key: "together", title: "함께 놀기", note: "다른 플레이어도 따라 할 수 있어요.", text: card.together, effect: card.togetherEffect, available: available.together }, { key: "home", title: "우리 집 행동", note: "이 행동은 나만 사용할 수 있어요.", text: card.home, effect: card.homeEffect, available: available.home }];
   const selectableExtras = current.hand.filter((c) => c.id !== card.id);
   const needsChoice = effects.some(({ key, effect }) => state.selectedActions[key] && (effect.resource === "choice" || effect.type === "GAIN_ALBUM" || effect.type === "TRASH_RIVAL"));
+  const needsSuitChoice = effects.some(({ key, effect }) => state.selectedActions[key] && effect.dynamicSuit);
   const orderedEffects = state.actionOrder.map((key) => effects.find((item) => item.key === key));
   return <aside className="detail-panel">
     <div className="detail-head"><span>선택한 동물</span><h2>{card.name}</h2><SuitPills suits={card.suits} named /></div>
@@ -676,16 +688,18 @@ function DetailPanel({ state, card, addedCards, onToggleAction, onSwapOrder, onC
       const calc = calculation(state, card, addedCards, item.effect);
       return <section className={`action-choice ${item.available.ok ? "available" : "unavailable"}`} key={item.key} title={!item.available.ok ? item.available.reason : ""}>
         <label><input type="checkbox" checked={state.selectedActions[item.key]} disabled={!item.available.ok} onChange={() => onToggleAction(item.key)} /><span><strong>{item.title}</strong><small>{item.note}</small></span><em>{item.available.ok ? "사용 가능" : "사용 불가"}</em></label>
-        <p><b className="order-number">{orderIndex + 1}</b><EffectIcons effect={item.effect} inline />{item.text}</p>{["LEVEL", "LEVEL_DISCOUNT", "LEVEL_SCORE"].includes(item.effect.type) && <div className="level-cost"><TrendingUp size={13} />확장 비용: {levelCostText(current, item.effect.type === "LEVEL_DISCOUNT" ? 1 : 0)}</div>}{!item.available.ok && <div className="reason">{item.available.reason}</div>}
+        <p><b className="order-number">{orderIndex + 1}</b><EffectIcons effect={item.effect} suitOverride={item.effect.dynamicSuit ? state.suitChoice : null} inline />{item.text}</p>{["LEVEL", "LEVEL_DISCOUNT", "LEVEL_SCORE"].includes(item.effect.type) && <div className="level-cost"><TrendingUp size={13} />확장 비용: {levelCostText(current, item.effect.type === "LEVEL_DISCOUNT" ? 1 : 0)}</div>}{!item.available.ok && <div className="reason">{item.available.reason}</div>}
         {state.selectedActions[item.key] && calc && <Calculation calc={calc} result={expectedText(state, card, addedCards, item.effect, state.resourceChoice)} />}
       </section>;
     })}</div>
+    {needsSuitChoice && <div className="suit-choice"><strong>계산할 성향</strong><div>{SUIT_ORDER.map((suit) => { const Icon = SUITS[suit].icon; return <button key={suit} className={state.suitChoice === suit ? "selected" : ""} style={{ "--choice-suit": SUITS[suit].color }} onClick={() => onSuitChoice(suit)} title={`${SUITS[suit].label} 성향 아이콘으로 계산합니다.`}><Icon size={15} />{SUITS[suit].label}</button>; })}</div></div>}
     {needsChoice && <div className="resource-choice"><strong>받을 자원</strong><div className="segmented"><button className={state.resourceChoice === "treats" ? "selected" : ""} onClick={() => onChoice("treats")}>간식</button><button className={state.resourceChoice === "toys" ? "selected" : ""} onClick={() => onChoice("toys")}>장난감</button></div></div>}
     <div className="boosters"><strong>행동 강화 카드</strong><p>실제 결과를 늘리는 같은 성향 카드만 추가할 수 있습니다.</p>{selectableExtras.map((extra) => {
       const alreadySelected = state.addedCardIds.includes(extra.id);
-      const increases = effects.some(({ key, effect }) => state.selectedActions[key] && effect.scaled && sharesSuit(extra, { suits: [effect.suit] }));
-      const scaled = alreadySelected || effects.some(({ key, effect }) => state.selectedActions[key] && effect.scaled && sharesSuit(extra, { suits: [effect.suit] }) && boostIsPerformable(state, card, addedCards, extra, effect));
-      const reason = !sharesSuit(extra, card) ? "주도 카드와 성향이 다릅니다." : increases ? "결과는 늘지만 행동 전체를 수행할 자원이나 카드가 부족합니다." : "선택한 행동의 결과를 증가시키지 않습니다.";
+      const increases = effects.some(({ key, effect }) => state.selectedActions[key] && effect.scaled && sharesSuit(extra, { suits: [resolvedSuit(state, effect)] }));
+      const scaled = alreadySelected || effects.some(({ key, effect }) => state.selectedActions[key] && effect.scaled && sharesSuit(extra, { suits: [resolvedSuit(state, effect)] }) && boostIsPerformable(state, card, addedCards, extra, effect));
+      const relevantSuit = effects.find(({ key, effect }) => state.selectedActions[key] && effect.scaled)?.effect;
+      const reason = relevantSuit && !sharesSuit(extra, { suits: [resolvedSuit(state, relevantSuit)] }) ? `선택한 ${SUITS[resolvedSuit(state, relevantSuit)].label} 성향과 다릅니다.` : increases ? "결과는 늘지만 행동 전체를 수행할 자원이나 카드가 부족합니다." : "선택한 행동의 결과를 증가시키지 않습니다.";
       return <button key={extra.id} className={alreadySelected ? "selected-extra" : ""} disabled={!scaled} title={!scaled ? reason : alreadySelected ? `${extra.name} 강화를 해제합니다.` : `${extra.name}으로 결과를 강화합니다.`} onClick={() => onToggleAdded(extra)}><SuitPills suits={extra.suits} /> {extra.name}</button>;
     })}</div>
     <button className="primary start" disabled={!state.selectedActions.together && !state.selectedActions.home} title={!state.selectedActions.together && !state.selectedActions.home ? "사용할 행동을 하나 이상 선택하세요." : "선택한 행동을 순서대로 수행합니다."} onClick={onStart}>행동 시작</button>
@@ -720,10 +734,10 @@ function effectVisual(effect) {
   const ResourceIcon = effect.resource === "treats" ? Cookie : effect.resource === "toys" ? Bone : Gift;
   const SuitIcon = effect.suit ? SUITS[effect.suit]?.icon : null;
   const visuals = {
-    NONE: [CircleMinus, null, "없음"], GAIN: [ResourceIcon, null, `${resource} +${effect.amount || 1}`], GAIN_SUIT: [ResourceIcon, SuitIcon, `${suit} × ${resource}`], SCORE_SUIT: [Trophy, SuitIcon, `${suit} × 인기`],
+    NONE: [CircleMinus, null, "없음"], GAIN: [ResourceIcon, null, `${resource} +${effect.amount || 1}`], GAIN_SUIT: [ResourceIcon, SuitIcon, `${suit} × ${resource}`], GAIN_CHOSEN_SUIT: [Gift, PawPrint, "선택 성향 × 자원"], SCORE_SUIT: [Trophy, SuitIcon, `${suit} × 인기`],
     ALBUM_SUIT: [Album, SuitIcon, `${suit} × 사진첩`], MOVE_SUIT: [Backpack, SuitIcon, `${suit} × 가방`], TRASH_SUIT: [Trash2, SuitIcon, `${suit} × 작별`], LEVEL: [TrendingUp, null, "놀이터 +1"],
     LEVEL_DISCOUNT: [TrendingUp, null, "할인 확장"], SCORE_BAG: [Trophy, Backpack, "가방 × 인기"], SCORE_ALBUM: [Trophy, Album, "사진첩 × 인기"], SCORE_LEVEL: [Trophy, TrendingUp, "레벨 × 인기"],
-    TRASH_RIVAL: [Trash2, PackageOpen, effect.reward ? "상대 작별 + 자원" : "상대 입구 작별"], ALBUM_ONE: [Album, null, "사진첩 +1"], MATCH_BAG: [Gift, Backpack, "내 가방 복사"], MATCH_RIVAL_BAG: [Gift, Backpack, "상대 가방 복사"],
+    TRASH_RIVAL: [Trash2, PackageOpen, effect.reward ? "상대 작별 + 자원" : "상대 입구 작별"], TRASH_ONE: [Trash2, null, "카드 1장 작별"], ALBUM_ONE: [Album, null, "사진첩 +1"], MATCH_BAG: [Gift, Backpack, "내 가방 복사"], MATCH_RIVAL_BAG: [Gift, Backpack, "상대 가방 복사"],
     EXCHANGE_SUIT: [ArrowLeftRight, SuitIcon, `${suit} × 교환`], RECRUIT_SUIT: [PawPrint, SuitIcon, `${suit} × 영입`], SELF_TRASH_SCORE: [Trophy, SuitIcon, `${suit} × 인기 · 작별`], REPEAT_GAIN_SCORE: [Trophy, SuitIcon, `${suit} × 인기`],
     GAIN_ALBUM: [Gift, Album, "사진첩 × 자원"], ALBUM_THEN_MOVE: [Backpack, Album, "사진첩 + 가방"], LEVEL_SCORE: [TrendingUp, Trophy, `확장 + 인기 ${effect.amount || 0}`],
   };
@@ -731,9 +745,12 @@ function effectVisual(effect) {
   return { Icon, LeadIcon, label };
 }
 
-function EffectIcons({ effect, inline = false }) {
-  const { Icon, LeadIcon } = effectVisual(effect);
-  return <span className={`effect-icons ${inline ? "inline" : ""}`} style={{ "--effect-suit": effect.suit ? SUITS[effect.suit]?.color : "#587061" }}>{LeadIcon && <><LeadIcon className="lead-icon" size={inline ? 14 : 15} /><i>×</i></>}<Icon className="result-icon" size={inline ? 14 : 16} /></span>;
+function EffectIcons({ effect, suitOverride = null, inline = false }) {
+  const visual = effectVisual(effect);
+  const LeadIcon = suitOverride ? SUITS[suitOverride].icon : visual.LeadIcon;
+  const Icon = visual.Icon;
+  const suitColor = suitOverride ? SUITS[suitOverride].color : effect.suit ? SUITS[effect.suit]?.color : "#587061";
+  return <span className={`effect-icons ${inline ? "inline" : ""}`} style={{ "--effect-suit": suitColor }}>{LeadIcon && <><LeadIcon className="lead-icon" size={inline ? 14 : 15} /><i>×</i></>}<Icon className="result-icon" size={inline ? 14 : 16} /></span>;
 }
 
 function CardActionSummary({ kind, effect, text }) {
