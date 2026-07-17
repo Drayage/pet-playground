@@ -168,6 +168,12 @@ function shuffle(items) {
 
 function clone(value) { return structuredClone(value); }
 
+function withParticle(word, consonantParticle, vowelParticle) {
+  const last = word.charCodeAt(word.length - 1);
+  const hasBatchim = last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 !== 0;
+  return `${word}${hasBatchim ? consonantParticle : vowelParticle}`;
+}
+
 function draw(player, count) {
   const next = clone(player);
   for (let i = 0; i < count; i += 1) {
@@ -486,7 +492,7 @@ export default function App() {
     if (next.selectedCardId) {
       const checks = cardAvailability(next, card);
       next.selectedActions = { together: checks.together.ok, home: checks.home.ok };
-      next.toast = `${card.name}을 선택했습니다. 사용할 행동을 확인하세요.`;
+      next.toast = `${withParticle(card.name, "을", "를")} 선택했습니다. 사용할 행동을 확인하세요.`;
     }
     setState(next);
   }
@@ -535,7 +541,7 @@ export default function App() {
     if (source === "park") { const i = next.parkRow.findIndex((c) => c.id === cardId); card = next.parkRow.splice(i, 1)[0]; const refill = next.parkDeck.shift(); if (refill) next.parkRow.push(refill); }
     if (source === "entrance") { const i = next.players[ownerIndex].entrance.findIndex((c) => c.id === cardId); card = next.players[ownerIndex].entrance.splice(i, 1)[0]; }
     if (source === "deck") card = next.parkDeck.shift();
-    if (card) { next.players[next.currentPlayerIndex].discard.push(card); next.toast = `${card.name}과 친해졌습니다.`; next.log.unshift(`${current.name}이 ${card.name}과 친해졌습니다.`); }
+    if (card) { next.players[next.currentPlayerIndex].discard.push(card); next.toast = `${withParticle(card.name, "과", "와")} 친해졌습니다.`; next.log.unshift(`${current.name}이 ${withParticle(card.name, "과", "와")} 친해졌습니다.`); }
     next.phase = PHASES.CLEANUP; next.cleanupStep = 0; setState(next);
   }
 
@@ -545,7 +551,7 @@ export default function App() {
         <div><p className="eyebrow">Pet Playground</p><h1>우리 집 동물놀이터</h1></div>
         <div className="setup">
           <select value={playerCount} onChange={(e) => setPlayerCount(Number(e.target.value))} aria-label="플레이어 수"><option value={2}>2명</option><option value={3}>3명</option><option value={4}>4명</option></select>
-          <button onClick={() => reset(playerCount)}><RotateCcw size={17} /> 새 게임</button>
+          <button className="new-game-button" onClick={() => reset(playerCount)} title="새 게임 시작" aria-label="새 게임 시작"><RotateCcw size={17} /><span>새 게임</span></button>
         </div>
       </header>
 
@@ -553,6 +559,12 @@ export default function App() {
         <div className="turn-meta"><span>턴 {state.turn}</span><strong>{current.name}</strong><span>공원 덱 {state.parkDeck.length}장</span></div>
         <div className="progress">{STEPS.map((step, i) => <React.Fragment key={step}><div className={`progress-step ${i === activeStep(state) ? "active" : ""} ${i < activeStep(state) ? "done" : ""}`}><span>{i < activeStep(state) ? <Check size={14} /> : i + 1}</span>{step}</div>{i < STEPS.length - 1 && <ChevronRight size={16} />}</React.Fragment>)}</div>
         <h2>{title}</h2><p>{helper}</p>
+        <div className="quick-stats" aria-label="현재 플레이어 핵심 정보">
+          <span><small>인기</small><b>{current.popularity}</b></span>
+          <span><small>레벨</small><b>{current.playgroundLevel}</b></span>
+          <span><small>간식</small><b>{current.storage.treats}/4</b></span>
+          <span><small>장난감</small><b>{current.storage.toys}/4</b></span>
+        </div>
       </section>
 
       {state.turn <= 3 && <Tutorial turn={state.turn} phase={state.phase} />}
@@ -599,13 +611,15 @@ function Tutorial({ turn, phase }) {
 function HandArea({ state, current, selectedCard, onSelect }) {
   const active = state.phase === PHASES.SELECT;
   const sortedHand = [...current.hand].sort((a, b) => {
+    const availabilityDifference = Number(cardAvailability(state, b).ok) - Number(cardAvailability(state, a).ok);
+    if (availabilityDifference !== 0) return availabilityDifference;
     const suitDifference = SUIT_ORDER.indexOf(a.suits[0]) - SUIT_ORDER.indexOf(b.suits[0]);
     if (suitDifference !== 0) return suitDifference;
     const iconDifference = b.suits.length - a.suits.length;
     return iconDifference || a.name.localeCompare(b.name, "ko");
   });
   return <section className={`hand-area ${active ? "focus" : "muted"}`}>
-    <div className="zone-head"><div><span className="zone-kicker">지금 선택할 곳</span><h2>내 손패</h2></div><span>{current.hand.length}장</span></div>
+    <div className="zone-head"><div><span className="zone-kicker">지금 선택할 곳</span><h2>내 손패</h2></div><div className="zone-meta"><span>{current.hand.length}장</span><span className="swipe-hint">옆으로 넘겨 비교 <ChevronRight size={13} /></span></div></div>
     <div className="hand">{sortedHand.map((card) => {
       const available = cardAvailability(state, card);
       return <CardView key={card.id} card={card} selected={selectedCard?.id === card.id} blocked={!active || !available.ok} blockReason={!active ? "지금은 손패를 선택하는 단계가 아닙니다." : available.reason} onClick={() => active && onSelect(card)} />;
