@@ -437,7 +437,7 @@ function instruction(state) {
   return ["게임이 끝났습니다.", "현재 최종 점수를 확인하세요."];
 }
 
-function App() {
+export default function App() {
   const [playerCount, setPlayerCount] = useState(2);
   const [state, setState] = useState(() => newGame(2));
   const current = state.players[state.currentPlayerIndex];
@@ -688,4 +688,7 @@ function SuitPills({ suits, named = false }) {
 function DisabledHint({ reason }) { return <div className="disabled-hint" title={reason}><Info size={16} />{reason}</div>; }
 function RecentLog({ log }) { return <details className="recent-log"><summary>최근 기록</summary>{log.slice(0, 10).map((item, index) => <p key={`${item}-${index}`}>{item}</p>)}</details>; }
 
-createRoot(document.getElementById("root")).render(<App />);
+if (typeof document !== "undefined") {
+  const root = document.getElementById("root");
+  if (root) createRoot(root).render(<App />);
+}
