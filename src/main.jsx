@@ -14,6 +14,7 @@ import {
   Crown,
   Cookie,
   Dog,
+  Download,
   Gift,
   Hammer,
   Home,
@@ -471,10 +472,23 @@ export default function App() {
   const [state, setState] = useState(() => newGame(2));
   const [pileView, setPileView] = useState(null);
   const [inspectedCard, setInspectedCard] = useState(null);
+  const [installPrompt, setInstallPrompt] = useState(null);
   const current = state.players[state.currentPlayerIndex];
   const selectedCard = current.hand.find((c) => c.id === state.selectedCardId) || null;
   const addedCards = current.hand.filter((c) => state.addedCardIds.includes(c.id));
   const [title, helper] = instruction(state);
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+    const handleInstallPrompt = (event) => { event.preventDefault(); setInstallPrompt(event); };
+    const handleInstalled = () => setInstallPrompt(null);
+    window.addEventListener("beforeinstallprompt", handleInstallPrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
+      window.removeEventListener("appinstalled", handleInstalled);
+    };
+  }, []);
 
   useEffect(() => {
     if (state.phase !== PHASES.CLEANUP) return undefined;
@@ -507,6 +521,12 @@ export default function App() {
   }, [state.phase, state.cleanupStep]);
 
   function reset(count = playerCount) { setState(newGame(count)); }
+  async function installApp() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  }
   function selectCard(card) {
     const availability = cardAvailability(state, card);
     if (!availability.ok) return;
@@ -575,6 +595,7 @@ export default function App() {
       <header className="topbar">
         <div><p className="eyebrow">Pet Playground</p><h1>우리 집 동물놀이터</h1></div>
         <div className="setup">
+          {installPrompt && <button className="install-button" onClick={installApp} title="홈 화면에 앱 설치"><Download size={17} /><span>앱 설치</span></button>}
           <select value={playerCount} onChange={(e) => setPlayerCount(Number(e.target.value))} aria-label="플레이어 수"><option value={2}>2명</option><option value={3}>3명</option><option value={4}>4명</option></select>
           <button className="new-game-button" onClick={() => reset(playerCount)} title="새 게임 시작" aria-label="새 게임 시작"><RotateCcw size={17} /><span>새 게임</span></button>
         </div>

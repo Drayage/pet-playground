@@ -35,6 +35,7 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 14px; }
 .eyebrow { margin: 0 0 2px; color: #4f725c; font-size: 12px; font-weight: 800; text-transform: uppercase; }
 .setup { display: flex; gap: 8px; }
+.install-button { border-color: #8fb19a; background: #e7f1e9; color: #285b3b; font-weight: 800; }
 
 .turn-guide {
   background: #fff;
@@ -298,6 +299,7 @@ main { min-height: 100vh; max-width: 1720px; margin: 0 auto; padding: 18px; }
   .setup { margin-left: auto; gap: 5px; flex: 0 0 auto; }
   .setup select, .setup button { min-height: 34px; padding: 5px 8px; font-size: 12px; }
   .new-game-button span { display: none; }
+  .install-button span { display: none; }
 
   .turn-guide { padding: 10px; gap: 4px; border-left-width: 4px; }
   .turn-meta { grid-row: 1; gap: 7px; font-size: 10px; }
