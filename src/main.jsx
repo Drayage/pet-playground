@@ -35,6 +35,9 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
+const BASE_URL = import.meta.env.BASE_URL || "/";
+const assetUrl = (path) => `${BASE_URL}${path.replace(/^\/+/, "")}`;
+
 const SUITS = {
   CHARM: { label: "재롱", icon: Crown, emoji: "🎭", color: "#c77823" },
   CRAFT: { label: "꾸미기", icon: Hammer, emoji: "🎀", color: "#2f7f58" },
@@ -479,7 +482,9 @@ export default function App() {
   const [title, helper] = instruction(state);
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(assetUrl("sw.js"), { scope: BASE_URL }).catch(() => {});
+    }
     const handleInstallPrompt = (event) => { event.preventDefault(); setInstallPrompt(event); };
     const handleInstalled = () => setInstallPrompt(null);
     window.addEventListener("beforeinstallprompt", handleInstallPrompt);
@@ -781,7 +786,7 @@ function CardActionSummary({ kind, effect, text }) {
 }
 
 function CardView({ card, selected = false, blocked = false, blockReason = "", compact = false, mini = false, onClick, onInspect }) {
-  const artSrc = `/assets/card-art/${String(card.artIndex).padStart(2, "0")}.jpg`;
+  const artSrc = assetUrl(`assets/card-art/${String(card.artIndex).padStart(2, "0")}.jpg`);
   const handleClick = blocked ? onInspect : onClick;
   return <article className={`card ${selected ? "selected" : ""} ${blocked ? "blocked" : ""} ${compact ? "compact" : ""} ${mini ? "mini" : ""}`} onClick={handleClick} tabIndex={handleClick ? 0 : undefined} onKeyDown={(e) => { if (handleClick && (e.key === "Enter" || e.key === " ")) handleClick(); }} aria-disabled={blocked} title={blocked ? `${blockReason} 눌러서 카드 효과를 확인합니다.` : `${card.name}: ${card.together} / ${card.home}`}><div className="card-art" role="img" aria-label={`${card.name} 동물 일러스트`}><img src={artSrc} alt="" aria-hidden="true" /><div className="card-top"><SuitPills suits={card.suits} named />{card.bestFriend && <span className="tag">반려동물</span>}</div></div><div className="card-name"><h3>{card.name}</h3></div><div className="card-copy"><CardActionSummary kind="together" effect={card.togetherEffect} text={card.together} /><CardActionSummary kind="home" effect={card.homeEffect} text={card.home} /></div>{selected && <div className="selected-mark"><Check size={15} /> 선택됨</div>}{blocked && <div className="card-block"><Info size={17} /><span>{blockReason}<small>눌러서 효과 보기</small></span></div>}</article>;
 }
@@ -807,7 +812,7 @@ function CardInspectOverlay({ card, reason, onClose }) {
     document.addEventListener("keydown", handleKeyDown);
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", handleKeyDown); };
   }, [onClose]);
-  const artSrc = `/assets/card-art/${String(card.artIndex).padStart(2, "0")}.jpg`;
+  const artSrc = assetUrl(`assets/card-art/${String(card.artIndex).padStart(2, "0")}.jpg`);
   return <div className="overlay inspect-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="inspect-modal" role="dialog" aria-modal="true" aria-label={`${card.name} 카드 효과`}><header><div><span className="modal-kicker">카드 효과 확인</span><h2>{card.name}</h2></div><button className="icon-button" onClick={onClose} title="닫기" aria-label="카드 효과 닫기"><X size={20} /></button></header><div className="inspect-body"><img src={artSrc} alt={`${card.name} 동물 일러스트`} /><div className="inspect-content"><SuitPills suits={card.suits} named /><div className="inspect-action together"><strong><Users size={15} />함께 놀기</strong><p><EffectIcons effect={card.togetherEffect} inline />{card.together}</p><small>다른 플레이어도 따라 할 수 있어요.</small></div><div className="inspect-action home"><strong><Home size={15} />우리 집 행동</strong><p><EffectIcons effect={card.homeEffect} inline />{card.home}</p><small>이 행동은 나만 사용할 수 있어요.</small></div><div className="inspect-reason"><Info size={16} /><div><strong>지금 사용할 수 없는 이유</strong><p>{reason}</p></div></div></div></div></section></div>;
 }
 
