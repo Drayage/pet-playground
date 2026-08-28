@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Album,
@@ -11,6 +11,7 @@ import {
   Check,
   ChevronRight,
   CircleMinus,
+  Copy,
   Crown,
   Cookie,
   Dog,
@@ -19,6 +20,9 @@ import {
   Hammer,
   Home,
   Info,
+  Link as LinkIcon,
+  Loader2,
+  LogOut,
   PackageOpen,
   PawPrint,
   RotateCcw,
@@ -28,12 +32,16 @@ import {
   Trash2,
   TrendingUp,
   Trophy,
+  UserPlus,
   Users,
   Waves,
+  Wifi,
   X,
   Zap,
 } from "lucide-react";
 import "./styles.css";
+import * as net from "./net.js";
+import { redactStateForViewer } from "./redact.js";
 
 const BASE_URL = import.meta.env.BASE_URL || "/";
 const assetUrl = (path) => `${BASE_URL}${path.replace(/^\/+/, "")}`;
@@ -470,16 +478,199 @@ function instruction(state) {
   return ["게임이 끝났습니다.", "현재 최종 점수를 확인하세요."];
 }
 
+// ── 온라인 대전용 순수 리듀서 ─────────────────────────────────────────
+// 아래 함수들은 모두 (state, ...args) => nextState 형태의 순수 함수다.
+// 로컬(핫싯) 모드에서는 컴포넌트가 직접 호출하고, 온라인 모드에서는
+// 호스트만 호출한다(호스트 권한 패턴) — 게스트는 의도(intent)만 보내고,
+// 호스트가 이 함수들로 상태를 계산해 재전송한다. 카드 자체가 아니라
+// 카드 id로 대상을 찾는 것은 게스트가 보내는 의도 메시지가 직렬화 가능한
+// id만 담으면 되도록 하기 위함이다.
+function applySelectCard(state, cardId) {
+  const player = state.players[state.currentPlayerIndex];
+  const card = player.hand.find((c) => c.id === cardId);
+  if (!card) return state;
+  const availability = cardAvailability(state, card);
+  if (!availability.ok) return state;
+  const next = clone(state);
+  next.selectedCardId = next.selectedCardId === card.id ? null : card.id;
+  next.addedCardIds = [];
+  if (next.selectedCardId) {
+    const checks = cardAvailability(next, card);
+    next.selectedActions = { together: checks.together.ok, home: checks.home.ok };
+    next.toast = `${withParticle(card.name, "을", "를")} 선택했습니다. 사용할 행동을 확인하세요.`;
+  }
+  return next;
+}
+function applyToggleAction(state, key) {
+  const next = clone(state);
+  next.selectedActions[key] = !next.selectedActions[key];
+  return next;
+}
+function applySwapActionOrder(state) {
+  const next = clone(state);
+  next.actionOrder.reverse();
+  return next;
+}
+function applySetChoice(state, choice) {
+  const next = clone(state);
+  next.resourceChoice = choice;
+  return next;
+}
+function applySetSuitChoice(state, suit) {
+  const next = clone(state);
+  next.suitChoice = suit;
+  next.addedCardIds = [];
+  return next;
+}
+function applyToggleAdded(state, cardId) {
+  const next = clone(state);
+  if (next.addedCardIds.includes(cardId)) next.addedCardIds = next.addedCardIds.filter((id) => id !== cardId);
+  else next.addedCardIds.push(cardId);
+  return next;
+}
+function applyStartActions(state) {
+  if (!state.selectedCardId) return state;
+  const next = clone(state);
+  const player = next.players[next.currentPlayerIndex];
+  const index = player.hand.findIndex((c) => c.id === next.selectedCardId);
+  if (index === -1) return state;
+  next.playedCard = player.hand.splice(index, 1)[0];
+  const extras = player.hand.filter((c) => next.addedCardIds.includes(c.id));
+  player.hand = player.hand.filter((c) => !next.addedCardIds.includes(c.id));
+  player.discard.push(...extras);
+  for (const action of next.actionOrder) {
+    if (!next.selectedActions[action]) continue;
+    const isTogether = action === "together";
+    applyEffect(next, next.currentPlayerIndex, next.playedCard, isTogether ? next.playedCard.togetherEffect : next.playedCard.homeEffect, extras, next.resourceChoice, isTogether ? "함께 놀기" : "우리 집 행동");
+  }
+  next.followQueue = next.selectedActions.together && next.playedCard.togetherEffect.type !== "NONE" ? next.players.map((_, i) => i).filter((i) => i !== next.currentPlayerIndex) : [];
+  next.phase = next.followQueue.length ? PHASES.FOLLOW : PHASES.RECRUIT;
+  next.selectedCardId = null;
+  return next;
+}
+function applySkipCard(state) {
+  const next = clone(state);
+  next.playedCard = null;
+  next.phase = PHASES.RECRUIT;
+  next.toast = "카드를 내지 않고 친해지기 단계로 넘어갑니다.";
+  next.log.unshift(`${next.players[next.currentPlayerIndex].name}이 카드 내기를 넘겼습니다.`);
+  return next;
+}
+function applyFollowSelect(state, cardId) {
+  return { ...state, followCardId: cardId };
+}
+function applyFollow(state, pass) {
+  const next = clone(state);
+  const followerIndex = next.followQueue[0];
+  const follower = next.players[followerIndex];
+  if (!pass && next.followCardId) {
+    const index = follower.hand.findIndex((c) => c.id === next.followCardId);
+    const [paid] = follower.hand.splice(index, 1);
+    follower.discard.push(paid);
+    applyEffect(next, followerIndex, next.playedCard, next.playedCard.togetherEffect, [], next.resourceChoice, "같이 놀기");
+    next.log.unshift(`${follower.name}이 함께 놀기 행동을 따라 했습니다.`);
+    next.toast = `${follower.name}이 함께 놀았습니다.`;
+  } else {
+    next.log.unshift(`${follower.name}이 같이 놀기를 넘겼습니다.`);
+    next.toast = `${follower.name}이 넘겼습니다.`;
+  }
+  next.followQueue.shift();
+  next.followCardId = null;
+  next.phase = next.followQueue.length ? PHASES.FOLLOW : PHASES.RECRUIT;
+  return next;
+}
+function applyRecruit(state, source, cardId, ownerIndex) {
+  const next = clone(state);
+  let card;
+  if (source === "park") { const i = next.parkRow.findIndex((c) => c.id === cardId); card = next.parkRow.splice(i, 1)[0]; const refill = next.parkDeck.shift(); if (refill) next.parkRow.push(refill); }
+  if (source === "entrance") { const i = next.players[ownerIndex].entrance.findIndex((c) => c.id === cardId); card = next.players[ownerIndex].entrance.splice(i, 1)[0]; }
+  if (source === "deck") card = next.parkDeck.shift();
+  if (card) { next.players[next.currentPlayerIndex].discard.push(card); next.toast = `${withParticle(card.name, "과", "와")} 친해졌습니다.`; next.log.unshift(`${next.players[next.currentPlayerIndex].name}이 ${withParticle(card.name, "과", "와")} 친해졌습니다.`); }
+  next.phase = PHASES.CLEANUP; next.cleanupStep = 0;
+  return next;
+}
+function applyCleanupAdvance(state) {
+  const next = clone(state);
+  if (next.cleanupStep < 3) {
+    next.cleanupStep += 1;
+    next.toast = cleanupMessages(next)[next.cleanupStep];
+    return next;
+  }
+  const player = next.players[next.currentPlayerIndex];
+  if (next.playedCard && !next.trashPlayedCard) player.discard.push(next.playedCard);
+  player.discard.push(...player.hand.filter((c) => c.bestFriend));
+  player.entrance.push(...player.hand.filter((c) => !c.bestFriend));
+  player.hand = [];
+  next.players[next.currentPlayerIndex] = draw(player, 5);
+  const roundEnd = next.currentPlayerIndex === next.players.length - 1;
+  next.currentPlayerIndex = (next.currentPlayerIndex + 1) % next.players.length;
+  if (roundEnd) next.turn += 1;
+  const entrant = next.players[next.currentPlayerIndex];
+  if (entrant.entrance.length) { entrant.discard.push(...entrant.entrance); entrant.entrance = []; }
+  next.phase = PHASES.SELECT; next.selectedCardId = null; next.addedCardIds = []; next.playedCard = null; next.cleanupStep = 0; next.trashPlayedCard = false;
+  next.toast = `${entrant.name} 차례입니다. 함께 놀 동물을 선택하세요.`;
+  next.log.unshift(`${entrant.name}이 새 카드 5장을 준비했습니다.`);
+  return next;
+}
+
+// action type -> reducer, used both for local dispatch and for applying
+// intents the host receives from the guest.
+const REDUCERS = {
+  selectCard: (s, { cardId }) => applySelectCard(s, cardId),
+  toggleAction: (s, { key }) => applyToggleAction(s, key),
+  swapActionOrder: (s) => applySwapActionOrder(s),
+  setChoice: (s, { choice }) => applySetChoice(s, choice),
+  setSuitChoice: (s, { suit }) => applySetSuitChoice(s, suit),
+  toggleAdded: (s, { cardId }) => applyToggleAdded(s, cardId),
+  startActions: (s) => applyStartActions(s),
+  skipCard: (s) => applySkipCard(s),
+  followSelect: (s, { cardId }) => applyFollowSelect(s, cardId),
+  follow: (s, { pass }) => applyFollow(s, pass),
+  recruit: (s, { source, cardId, ownerIndex }) => applyRecruit(s, source, cardId, ownerIndex),
+};
+
+// action type -> which seat is currently authorized to perform it. Used
+// only to validate intents arriving from the guest (the host's own clicks
+// are already gated by the UI's isMyTurn/isMyFollowTurn checks).
+const TURN_OWNER = {
+  selectCard: (s) => s.currentPlayerIndex,
+  toggleAction: (s) => s.currentPlayerIndex,
+  swapActionOrder: (s) => s.currentPlayerIndex,
+  setChoice: (s) => s.currentPlayerIndex,
+  setSuitChoice: (s) => s.currentPlayerIndex,
+  toggleAdded: (s) => s.currentPlayerIndex,
+  startActions: (s) => s.currentPlayerIndex,
+  skipCard: (s) => s.currentPlayerIndex,
+  recruit: (s) => s.currentPlayerIndex,
+  followSelect: (s) => s.followQueue[0],
+  follow: (s) => s.followQueue[0],
+};
+
+const ONLINE_GUEST_INDEX = 1; // 2인 온라인 대전 고정: 호스트=P1(0), 게스트=P2(1)
+
 export default function App() {
   const [playerCount, setPlayerCount] = useState(2);
   const [state, setState] = useState(() => newGame(2));
   const [pileView, setPileView] = useState(null);
   const [inspectedCard, setInspectedCard] = useState(null);
   const [installPrompt, setInstallPrompt] = useState(null);
+  const [room, setRoom] = useState(null); // { code, role: "host" | "guest", myIndex }
+  const [roomMeta, setRoomMeta] = useState(null); // last snapshot's guestId/players, for lobby/presence display
+  const [onlineMenuOpen, setOnlineMenuOpen] = useState(false);
+  const [onlineBusy, setOnlineBusy] = useState(false);
+  const [onlineError, setOnlineError] = useState(null);
+  const roomRef = useRef(null);
+  const seqRef = useRef(0);
   const current = state.players[state.currentPlayerIndex];
-  const selectedCard = current.hand.find((c) => c.id === state.selectedCardId) || null;
-  const addedCards = current.hand.filter((c) => state.addedCardIds.includes(c.id));
+  const isOnline = Boolean(room);
+  const isMyTurn = !isOnline || state.currentPlayerIndex === room.myIndex;
+  const isMyFollowTurn = !isOnline || (state.followQueue.length > 0 && state.followQueue[0] === room.myIndex);
+  const selectedCard = isMyTurn ? current.hand.find((c) => c.id === state.selectedCardId) || null : null;
+  const addedCards = isMyTurn ? current.hand.filter((c) => state.addedCardIds.includes(c.id)) : [];
   const [title, helper] = instruction(state);
+  const guestPresent = Boolean(roomMeta?.guestId && roomMeta?.players?.P2?.online);
+
+  useEffect(() => { roomRef.current = room; }, [room]);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -495,35 +686,63 @@ export default function App() {
     };
   }, []);
 
+  // 호스트가 계산한 다음 상태를 게스트 시점으로 가려(redact) 방에 기록한다.
+  // seq 가드 트랜잭션이 실패하면(동시 쓰기 충돌) 다음 mutation에서 그대로
+  // 재시도되므로 별도 재시도 로직은 두지 않는다.
+  async function writeRedacted(code, baseSeq, fullState) {
+    const { committed, seq } = await net.writeState(code, baseSeq, redactStateForViewer(fullState, ONLINE_GUEST_INDEX));
+    if (committed) seqRef.current = seq;
+    return committed;
+  }
+  function hostBroadcast(next) {
+    const activeRoom = roomRef.current;
+    if (!activeRoom || activeRoom.role !== "host") return;
+    writeRedacted(activeRoom.code, seqRef.current, next).catch((error) => {
+      setState((prev) => ({ ...prev, toast: `동기화 오류: ${error.message}` }));
+    });
+  }
+
+  // 방에 참가한 동안 방 문서(state/seq/players)를 구독한다. 호스트는 seq와
+  // 참가자 접속 여부만 필요하고(진짜 상태는 로컬이 원본), 게스트는 호스트가
+  // 보낸 가려진 state를 그대로 자신의 화면 상태로 사용한다.
+  useEffect(() => {
+    if (!room) return undefined;
+    return net.subscribeRoom(room.code, (roomValue) => {
+      if (!roomValue) return;
+      if (typeof roomValue.seq === "number") seqRef.current = roomValue.seq;
+      setRoomMeta({ guestId: roomValue.guestId, players: roomValue.players });
+      if (room.role === "guest" && roomValue.state) setState(roomValue.state);
+    });
+  }, [room?.code, room?.role]);
+
+  // 호스트만 게스트의 의도(intent) 큐를 구독해 적용 + 재전송한다.
+  useEffect(() => {
+    if (!room || room.role !== "host") return undefined;
+    return net.subscribeIntents(room.code, (intent) => {
+      const reducer = REDUCERS[intent.type];
+      const ownerOf = TURN_OWNER[intent.type];
+      if (!reducer || !ownerOf) return;
+      setState((prev) => {
+        if (ownerOf(prev) !== ONLINE_GUEST_INDEX) return prev; // 지금은 게스트 차례가 아님
+        const next = reducer(prev, intent.payload || {});
+        hostBroadcast(next);
+        return next;
+      });
+    });
+  }, [room?.code, room?.role]);
+
   useEffect(() => {
     if (state.phase !== PHASES.CLEANUP) return undefined;
+    if (room && room.role !== "host") return undefined; // 게스트는 호스트의 방송을 기다린다
     const timer = setTimeout(() => {
       setState((previous) => {
-        const next = clone(previous);
-        if (next.cleanupStep < 3) {
-          next.cleanupStep += 1;
-          next.toast = cleanupMessages(next)[next.cleanupStep];
-          return next;
-        }
-        const player = next.players[next.currentPlayerIndex];
-        if (next.playedCard && !next.trashPlayedCard) player.discard.push(next.playedCard);
-        player.discard.push(...player.hand.filter((c) => c.bestFriend));
-        player.entrance.push(...player.hand.filter((c) => !c.bestFriend));
-        player.hand = [];
-        next.players[next.currentPlayerIndex] = draw(player, 5);
-        const roundEnd = next.currentPlayerIndex === next.players.length - 1;
-        next.currentPlayerIndex = (next.currentPlayerIndex + 1) % next.players.length;
-        if (roundEnd) next.turn += 1;
-        const entrant = next.players[next.currentPlayerIndex];
-        if (entrant.entrance.length) { entrant.discard.push(...entrant.entrance); entrant.entrance = []; }
-        next.phase = PHASES.SELECT; next.selectedCardId = null; next.addedCardIds = []; next.playedCard = null; next.cleanupStep = 0; next.trashPlayedCard = false;
-        next.toast = `${entrant.name} 차례입니다. 함께 놀 동물을 선택하세요.`;
-        next.log.unshift(`${entrant.name}이 새 카드 5장을 준비했습니다.`);
+        const next = applyCleanupAdvance(previous);
+        if (room && room.role === "host") hostBroadcast(next);
         return next;
       });
     }, 700);
     return () => clearTimeout(timer);
-  }, [state.phase, state.cleanupStep]);
+  }, [state.phase, state.cleanupStep, room?.role]);
 
   function reset(count = playerCount) { setState(newGame(count)); }
   async function installApp() {
@@ -532,67 +751,83 @@ export default function App() {
     await installPrompt.userChoice;
     setInstallPrompt(null);
   }
-  function selectCard(card) {
-    const availability = cardAvailability(state, card);
-    if (!availability.ok) return;
-    const next = clone(state);
-    next.selectedCardId = next.selectedCardId === card.id ? null : card.id;
-    next.addedCardIds = [];
-    if (next.selectedCardId) {
-      const checks = cardAvailability(next, card);
-      next.selectedActions = { together: checks.together.ok, home: checks.home.ok };
-      next.toast = `${withParticle(card.name, "을", "를")} 선택했습니다. 사용할 행동을 확인하세요.`;
+
+  // 로컬(핫싯)에서는 그 자리에서 계산, 온라인 호스트는 계산 후 방송,
+  // 온라인 게스트는 의도만 보내고 실제 계산은 호스트가 한다.
+  function perform(type, payload = {}) {
+    if (!room) {
+      setState((prev) => REDUCERS[type](prev, payload));
+      return;
     }
-    setState(next);
-  }
-  function toggleAction(key) { const next = clone(state); next.selectedActions[key] = !next.selectedActions[key]; setState(next); }
-  function swapActionOrder() { const next = clone(state); next.actionOrder.reverse(); setState(next); }
-  function setChoice(choice) { const next = clone(state); next.resourceChoice = choice; setState(next); }
-  function setSuitChoice(suit) { const next = clone(state); next.suitChoice = suit; next.addedCardIds = []; setState(next); }
-  function toggleAdded(card) {
-    const next = clone(state);
-    if (next.addedCardIds.includes(card.id)) next.addedCardIds = next.addedCardIds.filter((id) => id !== card.id);
-    else next.addedCardIds.push(card.id);
-    setState(next);
-  }
-  function startActions() {
-    if (!selectedCard) return;
-    let next = clone(state);
-    const player = next.players[next.currentPlayerIndex];
-    next.playedCard = player.hand.splice(player.hand.findIndex((c) => c.id === selectedCard.id), 1)[0];
-    const extras = player.hand.filter((c) => next.addedCardIds.includes(c.id));
-    player.hand = player.hand.filter((c) => !next.addedCardIds.includes(c.id));
-    player.discard.push(...extras);
-    for (const action of next.actionOrder) {
-      if (!next.selectedActions[action]) continue;
-      const isTogether = action === "together";
-      applyEffect(next, next.currentPlayerIndex, next.playedCard, isTogether ? next.playedCard.togetherEffect : next.playedCard.homeEffect, extras, next.resourceChoice, isTogether ? "함께 놀기" : "우리 집 행동");
+    if (room.role === "host") {
+      setState((prev) => {
+        const next = REDUCERS[type](prev, payload);
+        hostBroadcast(next);
+        return next;
+      });
+    } else {
+      net.sendIntent(room.code, { type, payload }).catch((error) => {
+        setState((prev) => ({ ...prev, toast: `연결 오류: ${error.message}` }));
+      });
     }
-    next.followQueue = next.selectedActions.together && next.playedCard.togetherEffect.type !== "NONE" ? next.players.map((_, i) => i).filter((i) => i !== next.currentPlayerIndex) : [];
-    next.phase = next.followQueue.length ? PHASES.FOLLOW : PHASES.RECRUIT;
-    next.selectedCardId = null;
-    setState(next);
   }
-  function skipCard() {
-    const next = clone(state); next.playedCard = null; next.phase = PHASES.RECRUIT; next.toast = "카드를 내지 않고 친해지기 단계로 넘어갑니다."; next.log.unshift(`${current.name}이 카드 내기를 넘겼습니다.`); setState(next);
+
+  function selectCard(card) { perform("selectCard", { cardId: card.id }); }
+  function toggleAction(key) { perform("toggleAction", { key }); }
+  function swapActionOrder() { perform("swapActionOrder"); }
+  function setChoice(choice) { perform("setChoice", { choice }); }
+  function setSuitChoice(suit) { perform("setSuitChoice", { suit }); }
+  function toggleAdded(card) { perform("toggleAdded", { cardId: card.id }); }
+  function startActions() { perform("startActions"); }
+  function skipCard() { perform("skipCard"); }
+  function follow(pass = false) { perform("follow", { pass }); }
+  function recruit(source, cardId, ownerIndex) { perform("recruit", { source, cardId, ownerIndex }); }
+
+  async function startOnlineHost() {
+    setOnlineError(null);
+    setOnlineBusy(true);
+    try {
+      const freshState = newGame(2);
+      const code = await net.createRoom("P1");
+      net.setupPresence(code, "P1");
+      seqRef.current = 0;
+      const committed = await writeRedacted(code, 0, freshState);
+      if (!committed) throw new Error("방을 초기화하지 못했습니다. 다시 시도해 주세요.");
+      setPlayerCount(2);
+      setState(freshState);
+      setRoom({ code, role: "host", myIndex: 0 });
+      setOnlineMenuOpen(false);
+    } catch (error) {
+      setOnlineError(error.message || String(error));
+    } finally {
+      setOnlineBusy(false);
+    }
   }
-  function follow(pass = false) {
-    let next = clone(state); const followerIndex = next.followQueue[0]; const follower = next.players[followerIndex];
-    if (!pass && next.followCardId) {
-      const index = follower.hand.findIndex((c) => c.id === next.followCardId); const [paid] = follower.hand.splice(index, 1); follower.discard.push(paid);
-      applyEffect(next, followerIndex, next.playedCard, next.playedCard.togetherEffect, [], next.resourceChoice, "같이 놀기");
-      next.log.unshift(`${follower.name}이 함께 놀기 행동을 따라 했습니다.`);
-      next.toast = `${follower.name}이 함께 놀았습니다.`;
-    } else { next.log.unshift(`${follower.name}이 같이 놀기를 넘겼습니다.`); next.toast = `${follower.name}이 넘겼습니다.`; }
-    next.followQueue.shift(); next.followCardId = null; next.phase = next.followQueue.length ? PHASES.FOLLOW : PHASES.RECRUIT; setState(next);
+  async function startOnlineGuest(codeInput) {
+    setOnlineError(null);
+    setOnlineBusy(true);
+    try {
+      const code = codeInput.trim().toUpperCase();
+      if (!code) throw new Error("방 코드를 입력하세요.");
+      const roomSnapshot = await net.joinRoom(code, "P2");
+      net.setupPresence(code, "P2");
+      seqRef.current = roomSnapshot.seq || 0;
+      if (roomSnapshot.state) setState(roomSnapshot.state);
+      setRoomMeta({ guestId: "P2", players: roomSnapshot.players });
+      setRoom({ code, role: "guest", myIndex: 1 });
+      setOnlineMenuOpen(false);
+    } catch (error) {
+      setOnlineError(error.message || String(error));
+    } finally {
+      setOnlineBusy(false);
+    }
   }
-  function recruit(source, cardId, ownerIndex) {
-    const next = clone(state); let card;
-    if (source === "park") { const i = next.parkRow.findIndex((c) => c.id === cardId); card = next.parkRow.splice(i, 1)[0]; const refill = next.parkDeck.shift(); if (refill) next.parkRow.push(refill); }
-    if (source === "entrance") { const i = next.players[ownerIndex].entrance.findIndex((c) => c.id === cardId); card = next.players[ownerIndex].entrance.splice(i, 1)[0]; }
-    if (source === "deck") card = next.parkDeck.shift();
-    if (card) { next.players[next.currentPlayerIndex].discard.push(card); next.toast = `${withParticle(card.name, "과", "와")} 친해졌습니다.`; next.log.unshift(`${current.name}이 ${withParticle(card.name, "과", "와")} 친해졌습니다.`); }
-    next.phase = PHASES.CLEANUP; next.cleanupStep = 0; setState(next);
+  function leaveOnlineRoom() {
+    const activeRoom = roomRef.current;
+    if (activeRoom) net.leaveRoom(activeRoom.code, activeRoom.role === "host" ? "P1" : "P2").catch(() => {});
+    setRoom(null);
+    setRoomMeta(null);
+    setState(newGame(playerCount));
   }
 
   return (
@@ -601,15 +836,20 @@ export default function App() {
         <div><p className="eyebrow">Pet Playground</p><h1>우리 집 동물놀이터</h1></div>
         <div className="setup">
           {installPrompt && <button className="install-button" onClick={installApp} title="홈 화면에 앱 설치"><Download size={17} /><span>앱 설치</span></button>}
-          <select value={playerCount} onChange={(e) => setPlayerCount(Number(e.target.value))} aria-label="플레이어 수"><option value={2}>2명</option><option value={3}>3명</option><option value={4}>4명</option></select>
-          <button className="new-game-button" onClick={() => reset(playerCount)} title="새 게임 시작" aria-label="새 게임 시작"><RotateCcw size={17} /><span>새 게임</span></button>
+          {!isOnline && <>
+            <select value={playerCount} onChange={(e) => setPlayerCount(Number(e.target.value))} aria-label="플레이어 수"><option value={2}>2명</option><option value={3}>3명</option><option value={4}>4명</option></select>
+            <button className="new-game-button" onClick={() => reset(playerCount)} title="새 게임 시작" aria-label="새 게임 시작"><RotateCcw size={17} /><span>새 게임</span></button>
+            <button className="online-open-button" onClick={() => setOnlineMenuOpen(true)} title="온라인으로 친구와 대전" aria-label="온라인 플레이"><Wifi size={17} /><span>온라인 플레이</span></button>
+          </>}
         </div>
       </header>
+
+      {isOnline && <OnlineStatusBar room={room} guestPresent={guestPresent} onLeave={leaveOnlineRoom} />}
 
       <section className="turn-guide" aria-live="polite">
         <div className="turn-meta"><span>턴 {state.turn}</span><strong>{current.name}</strong><span>공원 덱 {state.parkDeck.length}장</span></div>
         <div className="progress">{STEPS.map((step, i) => <React.Fragment key={step}><div className={`progress-step ${i === activeStep(state) ? "active" : ""} ${i < activeStep(state) ? "done" : ""}`}><span>{i < activeStep(state) ? <Check size={14} /> : i + 1}</span>{step}</div>{i < STEPS.length - 1 && <ChevronRight size={16} />}</React.Fragment>)}</div>
-        <h2>{title}</h2><p>{helper}</p>
+        <h2>{isOnline && !isMyTurn && state.phase !== PHASES.CLEANUP ? `${current.name}의 차례입니다` : title}</h2><p>{helper}</p>
         <div className="quick-stats" aria-label="현재 플레이어 핵심 정보">
           <span><small><Trophy size={10} />인기</small><b>{current.popularity}</b></span>
           <span><small><TrendingUp size={10} />레벨</small><b>{current.playgroundLevel}</b></span>
@@ -618,25 +858,32 @@ export default function App() {
         </div>
       </section>
 
-      {state.turn <= 3 && <Tutorial turn={state.turn} phase={state.phase} />}
+      {!isOnline && state.turn <= 3 && <Tutorial turn={state.turn} phase={state.phase} />}
       {state.toast && <div className="toast" role="status"><Info size={16} /> {state.toast}</div>}
 
       <section className="layout">
-        <aside className="players">{state.players.map((player, index) => <PlayerPanel key={player.id} player={player} active={index === state.currentPlayerIndex} onOpenPile={(pile) => setPileView({ playerIndex: index, pile })} />)}</aside>
+        <aside className="players">{state.players.map((player, index) => <PlayerPanel key={player.id} player={player} active={index === state.currentPlayerIndex} revealDeck={!isOnline} onOpenPile={(pile) => setPileView({ playerIndex: index, pile })} />)}</aside>
 
         <section className="table">
-          <HandArea state={state} current={current} selectedCard={selectedCard} onSelect={selectCard} onInspect={(card, reason) => setInspectedCard({ card, reason })} />
-          <ParkArea state={state} onRecruit={recruit} />
-          {state.phase === PHASES.RECRUIT && <RecruitZones state={state} onRecruit={recruit} />}
+          {isMyTurn
+            ? <HandArea state={state} current={current} selectedCard={selectedCard} onSelect={selectCard} onInspect={(card, reason) => setInspectedCard({ card, reason })} />
+            : <WaitingArea message={`${current.name}이 카드를 고르는 중입니다.`} />}
+          <ParkArea state={state} onRecruit={recruit} disabled={!isMyTurn} />
+          {state.phase === PHASES.RECRUIT && (isMyTurn
+            ? <RecruitZones state={state} onRecruit={recruit} />
+            : <WaitingArea message={`${current.name}이 친해질 동물을 고르는 중입니다.`} />)}
           {state.phase === PHASES.CLEANUP && <CleanupSequence state={state} />}
         </section>
 
         <DetailPanel state={state} card={selectedCard} addedCards={addedCards} onToggleAction={toggleAction} onSwapOrder={swapActionOrder} onChoice={setChoice} onSuitChoice={setSuitChoice} onToggleAdded={toggleAdded} onStart={startActions} onSkip={skipCard} />
       </section>
 
-      {state.phase === PHASES.FOLLOW && <FollowOverlay state={state} onSelect={(id) => setState({ ...state, followCardId: id })} onFollow={() => follow(false)} onPass={() => follow(true)} />}
+      {state.phase === PHASES.FOLLOW && (isMyFollowTurn
+        ? <FollowOverlay state={state} onSelect={(id) => perform("followSelect", { cardId: id })} onFollow={() => follow(false)} onPass={() => follow(true)} />
+        : <WaitingOverlay message={`${state.players[state.followQueue[0]].name}이 같이 놀지 결정하는 중입니다.`} />)}
       {pileView && <PileOverlay player={state.players[pileView.playerIndex]} pile={pileView.pile} onClose={() => setPileView(null)} />}
       {inspectedCard && <CardInspectOverlay card={inspectedCard.card} reason={inspectedCard.reason} onClose={() => setInspectedCard(null)} />}
+      {onlineMenuOpen && <OnlineMenu busy={onlineBusy} error={onlineError} onCreate={startOnlineHost} onJoin={startOnlineGuest} onClose={() => { setOnlineMenuOpen(false); setOnlineError(null); }} />}
     </main>
   );
 }
@@ -681,12 +928,12 @@ function HandArea({ state, current, selectedCard, onSelect, onInspect }) {
   </section>;
 }
 
-function ParkArea({ state, onRecruit }) {
-  const active = state.phase === PHASES.RECRUIT;
+function ParkArea({ state, onRecruit, disabled = false }) {
+  const active = state.phase === PHASES.RECRUIT && !disabled;
   return <section className={`park-area ${active ? "focus" : "muted"}`}>
     <div className="zone-head"><div><span className="zone-kicker">공개 카드</span><h2>동네 공원</h2></div></div>
-    <div className="park-row">{state.parkRow.map((card) => <CardView key={card.id} card={card} compact blocked={!active} blockReason="친해지기 단계에서 선택할 수 있습니다." onClick={() => active && onRecruit("park", card.id)} />)}</div>
-    {!active && <div className="zone-lock"><PackageOpen size={22} />친해지기 단계에서 선택할 수 있습니다</div>}
+    <div className="park-row">{state.parkRow.map((card) => <CardView key={card.id} card={card} compact blocked={!active} blockReason={disabled && state.phase === PHASES.RECRUIT ? "상대가 친해질 동물을 고르는 중입니다." : "친해지기 단계에서 선택할 수 있습니다."} onClick={() => active && onRecruit("park", card.id)} />)}</div>
+    {!active && <div className="zone-lock"><PackageOpen size={22} />{disabled && state.phase === PHASES.RECRUIT ? "상대가 친해질 동물을 고르는 중입니다" : "친해지기 단계에서 선택할 수 있습니다"}</div>}
   </section>;
 }
 
@@ -747,8 +994,9 @@ function CleanupSequence({ state }) {
   return <section className="cleanup"><h2>턴 종료 처리</h2>{messages.map((message, index) => <div className={`${index < state.cleanupStep ? "done" : ""} ${index === state.cleanupStep ? "active" : ""}`} key={message}><span>{index < state.cleanupStep ? <Check size={15} /> : index + 1}</span>{message}</div>)}</section>;
 }
 
-function PlayerPanel({ player, active, onOpenPile }) {
-  return <article className={`player ${active ? "active" : ""}`}><div className="player-title"><Dog size={19} /><strong>{player.name}</strong>{active && <span>현재 차례</span>}</div><InfoGroup label="인기 점수"><StatChip icon={Trophy} label={`${player.popularity}점`} strong /></InfoGroup><InfoGroup label="놀이터"><StatChip icon={TrendingUp} label={`레벨 ${player.playgroundLevel}`} /><StatChip icon={Star} label={`종료 +${levelScores[player.playgroundLevel]}`} /><StatChip icon={Trophy} label={`최종 ${scorePlayer(player)}점`} strong /></InfoGroup><InfoGroup label="보관함"><StatChip icon={Cookie} label={`간식 ${player.storage.treats}/4`} /><StatChip icon={Bone} label={`장난감 ${player.storage.toys}/4`} /></InfoGroup><InfoGroup label="소풍 가방과 사진첩"><StatChip icon={Backpack} label={`가방 ${player.picnicBag.treats + player.picnicBag.toys}/${capacity(player)}`} /><PileButton icon={Album} label="사진첩" count={player.album.length} onClick={() => onOpenPile("album")} /></InfoGroup><InfoGroup label="카드 더미"><PileButton icon={Box} label="덱" count={player.deck.length} onClick={active ? () => onOpenPile("deck") : null} reason="상대 덱의 내용은 공개되지 않습니다." /><PileButton icon={Trash2} label="버림" count={player.discard.length} onClick={() => onOpenPile("discard")} /><PileButton icon={PackageOpen} label="입구" count={player.entrance.length} onClick={() => onOpenPile("entrance")} /></InfoGroup></article>;
+function PlayerPanel({ player, active, revealDeck = true, onOpenPile }) {
+  const canOpenDeck = active && revealDeck;
+  return <article className={`player ${active ? "active" : ""}`}><div className="player-title"><Dog size={19} /><strong>{player.name}</strong>{active && <span>현재 차례</span>}</div><InfoGroup label="인기 점수"><StatChip icon={Trophy} label={`${player.popularity}점`} strong /></InfoGroup><InfoGroup label="놀이터"><StatChip icon={TrendingUp} label={`레벨 ${player.playgroundLevel}`} /><StatChip icon={Star} label={`종료 +${levelScores[player.playgroundLevel]}`} /><StatChip icon={Trophy} label={`최종 ${scorePlayer(player)}점`} strong /></InfoGroup><InfoGroup label="보관함"><StatChip icon={Cookie} label={`간식 ${player.storage.treats}/4`} /><StatChip icon={Bone} label={`장난감 ${player.storage.toys}/4`} /></InfoGroup><InfoGroup label="소풍 가방과 사진첩"><StatChip icon={Backpack} label={`가방 ${player.picnicBag.treats + player.picnicBag.toys}/${capacity(player)}`} /><PileButton icon={Album} label="사진첩" count={player.album.length} onClick={() => onOpenPile("album")} /></InfoGroup><InfoGroup label="카드 더미"><PileButton icon={Box} label="덱" count={player.deck.length} onClick={canOpenDeck ? () => onOpenPile("deck") : null} reason={revealDeck ? "상대 덱의 내용은 공개되지 않습니다." : "온라인 대전에서는 덱 순서를 볼 수 없습니다."} /><PileButton icon={Trash2} label="버림" count={player.discard.length} onClick={() => onOpenPile("discard")} /><PileButton icon={PackageOpen} label="입구" count={player.entrance.length} onClick={() => onOpenPile("entrance")} /></InfoGroup></article>;
 }
 function InfoGroup({ label, children }) { return <div className="info-group"><small>{label}</small><div>{children}</div></div>; }
 function StatChip({ icon: Icon, label, strong = false }) { const Tag = strong ? "b" : "span"; return <Tag className="stat-chip"><Icon size={12} />{label}</Tag>; }
@@ -822,6 +1070,61 @@ function SuitPills({ suits, named = false }) {
 }
 function DisabledHint({ reason }) { return <div className="disabled-hint" title={reason}><Info size={16} />{reason}</div>; }
 function RecentLog({ log }) { return <details className="recent-log"><summary>최근 기록</summary>{log.slice(0, 10).map((item, index) => <p key={`${item}-${index}`}>{item}</p>)}</details>; }
+
+// ── 온라인 플레이 UI ───────────────────────────────────────────────
+function WaitingArea({ message }) {
+  return <section className="waiting-area"><Loader2 className="spin" size={22} /><p>{message}</p></section>;
+}
+function WaitingOverlay({ message }) {
+  return <div className="overlay"><section className="waiting-modal" role="dialog" aria-modal="true"><Loader2 className="spin" size={26} /><p>{message}</p></section></div>;
+}
+
+function OnlineStatusBar({ room, guestPresent, onLeave }) {
+  const [copied, setCopied] = useState(false);
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(room.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // 클립보드 접근이 막힌 환경 -- 방 코드는 화면에 그대로 보이므로 무시한다.
+    }
+  }
+  return <div className="online-status">
+    <span className="online-status-role"><Wifi size={14} /> {room.role === "host" ? "방장" : "참가자"}</span>
+    <span className="online-status-code">방 코드 <b>{room.code}</b><button className="icon-button" onClick={copyCode} title="코드 복사" aria-label="코드 복사"><Copy size={14} /></button>{copied && <em>복사됨</em>}</span>
+    <span className={`online-status-presence ${guestPresent || room.role === "guest" ? "online" : "waiting"}`}>{room.role === "host" ? (guestPresent ? "상대 접속 중" : "상대를 기다리는 중...") : "방장과 연결됨"}</span>
+    <button onClick={onLeave} title="온라인 방을 나가고 새 로컬 게임을 시작합니다."><LogOut size={14} /> 방 나가기</button>
+  </div>;
+}
+
+function OnlineMenu({ busy, error, onCreate, onJoin, onClose }) {
+  const [joinCode, setJoinCode] = useState("");
+  return <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="online-modal" role="dialog" aria-modal="true" aria-label="온라인 플레이">
+      <header>
+        <div><span className="modal-kicker">온라인 플레이</span><h2>친구와 온라인으로 대전하기</h2></div>
+        <button className="icon-button" onClick={onClose} title="닫기" aria-label="닫기"><X size={20} /></button>
+      </header>
+      <div className="online-options">
+        <div className="online-option">
+          <h3><UserPlus size={16} /> 방 만들기</h3>
+          <p>새 방을 만들고 방 코드를 친구에게 알려주세요. 2인 대전으로 시작됩니다.</p>
+          <button className="primary" disabled={busy} onClick={onCreate}>{busy ? "만드는 중..." : "방 만들기"}</button>
+        </div>
+        <div className="online-option">
+          <h3><LinkIcon size={16} /> 코드로 참가하기</h3>
+          <p>친구가 만든 방 코드를 입력하세요.</p>
+          <div className="join-row">
+            <input value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="방 코드" maxLength={5} aria-label="방 코드 입력" />
+            <button className="primary" disabled={busy || joinCode.trim().length < 5} onClick={() => onJoin(joinCode)}>{busy ? "참가하는 중..." : "참가하기"}</button>
+          </div>
+        </div>
+      </div>
+      {error && <div className="online-error"><Info size={15} />{error}</div>}
+    </section>
+  </div>;
+}
 
 if (typeof document !== "undefined") {
   const root = document.getElementById("root");
