@@ -29,3 +29,27 @@ export function redactStateForViewer(state, viewerIndex) {
     })),
   };
 }
+
+// Firebase RTDB has no way to represent an empty array: writing `[]` removes
+// that key entirely, so it comes back as `undefined` on read. discard/
+// entrance/album (per player) and parkDeck/parkRow are all legitimately
+// empty at real points in a game (start of game, park deck run dry, ...),
+// and the guest applies `roomValue.state` straight into React state — every
+// unguarded `.length`/`.map` on those fields throughout main.jsx would then
+// throw only on the guest's screen (the host renders its own in-memory
+// state, which never round-trips through the network). Restore them before
+// the guest's `setState` call.
+export function hydrateNetworkState(view) {
+  if (!view) return view;
+  view.parkDeck = view.parkDeck || [];
+  view.parkRow = view.parkRow || [];
+  view.log = view.log || [];
+  (view.players || []).forEach((player) => {
+    player.hand = player.hand || [];
+    player.deck = player.deck || [];
+    player.discard = player.discard || [];
+    player.entrance = player.entrance || [];
+    player.album = player.album || [];
+  });
+  return view;
+}

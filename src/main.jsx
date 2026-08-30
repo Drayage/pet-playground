@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import * as net from "./net.js";
-import { redactStateForViewer } from "./redact.js";
+import { redactStateForViewer, hydrateNetworkState } from "./redact.js";
 
 const BASE_URL = import.meta.env.BASE_URL || "/";
 const assetUrl = (path) => `${BASE_URL}${path.replace(/^\/+/, "")}`;
@@ -711,7 +711,7 @@ export default function App() {
       if (!roomValue) return;
       if (typeof roomValue.seq === "number") seqRef.current = roomValue.seq;
       setRoomMeta({ guestId: roomValue.guestId, players: roomValue.players });
-      if (room.role === "guest" && roomValue.state) setState(roomValue.state);
+      if (room.role === "guest" && roomValue.state) setState(hydrateNetworkState(roomValue.state));
     });
   }, [room?.code, room?.role]);
 
